@@ -158,6 +158,21 @@ int main( int argc, char* argv[] )
 	realWriter->SetFileName( str + "_vesselness.nrrd" );
 	realWriter->Update();
 
+	/***********************************************
+	 * Blobs are a problem in the image. They split
+	 * fibers into pieces. Most of the blobs have
+	 * the same label as fibers, but are isolated.
+	 * If we can segment such blobs, we can dilate
+	 * them and only them so they touch the rest
+	 * of the skeleton they might have split.
+	 * If I is the binary image and B the binary
+	 * image with only the blobs, D the
+	 * dilatation operator, and K the skeletonization
+	 * operator, K( I or D(B) ) should get rid of
+	 * the split artifact.
+	 **********************************************/
+
+
 	std::cout << " ***** Skeletonization " << std::endl;
 	// We give the binary output of the last filter
 
