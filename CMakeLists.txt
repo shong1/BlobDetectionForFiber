@@ -23,14 +23,6 @@ OPTION(BUILD_DOCUMENTATION "build documentation" ON)
 OPTION(BUILD_DOXYGEN "build doxygen" ON)
 OPTION(ITK_BUILD_ALL_MODULE "build all module" ON)
 
-FIND_LIBRARY(FFTW_LIBRARY NAMES fftw3)
-SET(FFTW_LIBRARIES "${FFTW_LIBRARY}")
-
-IF( UNIX AND NOT WIN32)
-    FIND_LIBRARY( FFTW_libm_LIBRARY NAMES m)
-    LIST( APPEND FFTW_LIBRARIES "${FFTW_libm_LIBRARY}")
-ENDIF()
-
 IF(CMAKE_COMPILER_IS_GNUCXX)
 	ADD_DEFINITIONS(-fpermissive -std=gnu++0x)
 ENDIF()
@@ -63,5 +55,4 @@ SET( OtherSources main.cxx itkBinaryThinningImageFilter3D.txx itkLineShapeImageF
 #ADD_EXECUTABLE(skull_stripping ${My_sources} ${My_headers_moc} ${My_forms_headers} ${My_RCC_srcs} ${OtherHeaders} ${OtherSources} )
 ADD_EXECUTABLE(concrete ${OtherHeaders} ${OtherSources} )
 
-#TARGET_LINK_LIBRARIES(concrete ${QT_LIBRARIES} ${ITK_LIBRARIES})
-TARGET_LINK_LIBRARIES(concrete ${ITK_LIBRARIES} ${FFTW_LIBRARIES})
+TARGET_LINK_LIBRARIES(concrete ${ITK_LIBRARIES} )
