@@ -58,6 +58,7 @@ namespace itk
  *
  */
 template< class TInputImage, class TOutputImage = TInputImage, class TLabelImage = TOutputImage, class TVectorImage = Image< Vector< typename NumericTraits< typename TInputImage::PixelType >::RealType, TInputImage::ImageDimension >, TInputImage::ImageDimension > >
+
 class ITK_EXPORT LineShapeImageFilter :
 	public ImageToImageFilter< TInputImage, TOutputImage >
 {
@@ -161,7 +162,6 @@ public:
 	void LabelImageOff();
 
 protected:
-
 	/** Filter typedefs. */
 	typedef HessianRecursiveGaussianImageFilter< InputImageType >			HessianGaussianFilterType;
 	typedef BinaryThresholdImageFilter< LabelImageType, OutputImageType >	BinaryThresholdFilterType;
@@ -174,7 +174,6 @@ protected:
 	typedef typename TensorType::EigenValuesArrayType						EigenValuesArrayType;
 	typedef typename TensorType::EigenVectorsMatrixType						EigenVectorsMatrixType;
 	typedef Image< EigenValuesArrayType, ImageDimension >					EigenValuesArrayImageType;
-
 
 	/** Matrix analysis tool typedef. */
 	typedef SymmetricEigenAnalysis< TensorType, EigenValuesArrayType >			EigenAnalysisType;

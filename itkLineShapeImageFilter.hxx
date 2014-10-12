@@ -24,7 +24,7 @@ LineShapeImageFilter< TInputImage, TOutputImage, TLabelImage, TVectorImage >
 	m_LabelCount = 1 << ( ImageDimension - 1 );
 	m_BrightLine = m_LabelCount - 1;
 
-	m_Sigma = 1.0f;
+	m_Sigma = 10.0f;
 
 	m_ExtractBrightLine = false;
 
@@ -117,7 +117,6 @@ void LineShapeImageFilter< TInputImage, TOutputImage, TLabelImage, TVectorImage 
 		lineDirectionFilter->SetInput( hessianGaussianFilter->GetOutput() );
 		lineDirectionFilter->Update();
 
-
 		this->GraftNthOutput( 5, lineDirectionFilter->GetOutput() );
 	}
 
@@ -133,7 +132,6 @@ void LineShapeImageFilter< TInputImage, TOutputImage, TLabelImage, TVectorImage 
 	vesselnessFilter->SetAlpha1( 1 );
 	vesselnessFilter->SetAlpha2( 1 );
 	vesselnessFilter->Update();
-
 
 	this->GraftNthOutput( 6, vesselnessFilter->GetOutput() );
 
