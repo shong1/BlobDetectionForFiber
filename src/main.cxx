@@ -112,13 +112,10 @@ typedef itk::MultiplyImageFilter< ImageType, RealImageType, RealImageType > Mult
 
 typedef itk::ImageDuplicator< RealImageType >	DuplicatorType;
 
-
-
 typedef itk::MinimumMaximumImageCalculator< ImageType >					MinMaxFilterType;
 typedef itk::StatisticsImageFilter< ImageType > 						StaticFilterType;
 typedef itk::ScalarImageKmeansImageFilter< ImageType, LabelType > 		KMeansType;
 typedef itk::StatisticsImageFilter< SegLabelType > 						LabelStaticFilterType;
-
 
 typedef itk::ConnectedComponentImageFilter< LabelType, ImageType >		CCAFilterType;
 typedef itk::RelabelComponentImageFilter< ImageType, LabelType > 		RelabelFilterType;
@@ -130,7 +127,6 @@ typedef itk::SubtractImageFilter< ImageType, ImageType > 				SubtractorType;
 
 typedef itk::GradientMagnitudeImageFilter< ImageType, RealImageType > 	GradientMagnitudeFilterType;
 typedef itk::WatershedImageFilter< RealImageType > 						WatershedFilterType;
-
 
 #include "vtkSmartPointer.h"
 #include "vtkDoubleArray.h"
@@ -173,7 +169,7 @@ void display( TreeNodeType* node );
 int main( int argc, char* argv[] )
 {
 	/*
-	 * Checking input parameters
+	 * Checking input parametersmain
 	 * The parameter is the file without the extension
 	 */
 
@@ -243,6 +239,34 @@ int main( int argc, char* argv[] )
 	writer->Update();
 
 
+	std::cout << " ***** LineShapeFilter " << std::endl;
+
+	// This filter does a hessian + gaussian filter
+	// We have then access to eigen values
+	LineShapeFilterType::Pointer lineShapeFilter = LineShapeFilterType::New();
+
+	lineShapeFilter->SetInput( reader->GetOutput() );
+	// this parameter has to be about the width of a fiber
+	lineShapeFilter->SetSigma( 2.0f );
+	lineShapeFilter->SetExtractBrightLine( false );
+	lineShapeFilter->EigenValuesExtractionOn();
+	lineShapeFilter->LabelImageOn();
+	lineShapeFilter->Update();
+	// Binary image of the fiber-like shapes
+	writer->SetInput( lineShapeFilter->GetBinaryOutput() );
+	writer->SetFileName( str + "_binary.nrrd" );
+	writer->Update();
+
+	// Label image depending of the sign of the 3 sorted eigenvalues
+	writer->SetInput( lineShapeFilter->GetLabelOutput() );
+	writer->SetFileName( str + "_label.nrrd" );
+	writer->Update();
+
+	RealImageType::Pointer eigImg0 = lineShapeFilter->GetEigenValuesOutput( 0 );
+	RealImageType::Pointer eigImg1 = lineShapeFilter->GetEigenValuesOutput( 1 );
+	RealImageType::Pointer eigImg2 = lineShapeFilter->GetEigenValuesOutput( 2 );
+
+	// Watershed Segmentation for Blob Detection
 	GradientMagnitudeFilterType::Pointer gradientFilter = GradientMagnitudeFilterType::New();
 	gradientFilter->SetInput( input );
 	gradientFilter->Update();
@@ -267,7 +291,6 @@ int main( int argc, char* argv[] )
 
 	SegLabelType::Pointer waterShedLabel = watersheder->GetOutput();
 
-
 	float meanL = labelStatFilter->GetMean();
 	float stdL = labelStatFilter->GetSigma();
 	float minL = labelStatFilter->GetMinimum();
@@ -276,12 +299,19 @@ int main( int argc, char* argv[] )
 	cout << "Mean : " << meanL << " Std : " << stdL << " Min : " << minL << " Max : " << maxL << endl;
 
 	double* meanArr = new double [ (int)maxL ];
+	double* eig0Arr = new double [ (int)maxL ];
+	double* eig1Arr = new double [ (int)maxL ];
+	double* eig2Arr = new double [ (int)maxL ];
+
 	int* sizeArr = new int[ (int)maxL ];
 
 	for( int i = 1; i < maxL; i++ )
 	{
 		meanArr[ i ] = 0;
 		sizeArr[ i ] = 0;
+		eig0Arr[ i ] = 0;
+		eig1Arr[ i ] = 0;
+		eig2Arr[ i ] = 0;
 	}
 
 	for( int x = 0; x < dim3[0]; x++ )
@@ -300,6 +330,10 @@ int main( int argc, char* argv[] )
 
 		unsigned short val = input->GetPixel( idx );
 		unsigned long lVal = waterShedLabel->GetPixel( idxSeg );
+		double eig0Val = eigImg0->GetPixel( idx );
+		double eig1Val = eigImg1->GetPixel( idx );
+		double eig2Val = eigImg2->GetPixel( idx );
+
 
 		int arrIdx = (int)( lVal - 1 );
 
@@ -308,10 +342,20 @@ int main( int argc, char* argv[] )
 
 		meanArr[ arrIdx ] = cMean + val;
 		sizeArr[ arrIdx ] = cSize + 1;
+		eig0Arr[ arrIdx ] = eig0Arr[ arrIdx ] + eig0Val;
+		eig1Arr[ arrIdx ] = eig1Arr[ arrIdx ] + eig1Val;
+		eig2Arr[ arrIdx ] = eig2Arr[ arrIdx ] + eig2Val;
 	}
 
 	vector< double > vecMean;
 	vecMean.clear();
+	vector< double > vecEig0;
+	vecEig0.clear();
+	vector< double > vecEig1;
+	vecEig1.clear();
+	vector< double > vecEig2;
+	vecEig2.clear();
+
 	vector< int > vecIdx;
 	vecIdx.clear();
 
@@ -327,9 +371,15 @@ int main( int argc, char* argv[] )
 		else
 		{
 			meanArr[ i ] = meanVal / sizeVal;
+			eig0Arr[ i ] = eig0Arr[ i ] / sizeVal;
+			eig1Arr[ i ] = eig1Arr[ i ] / sizeVal;
+			eig2Arr[ i ] = eig2Arr[ i ] / sizeVal;
 
 			vecMean.push_back( meanArr[ i ] );
 			vecIdx.push_back( i );
+			vecEig0.push_back( eig0Arr[ i ] );
+			vecEig1.push_back( eig1Arr[ i ] );
+			vecEig2.push_back( eig2Arr[ i ] );
 		}
 	}
 
@@ -340,43 +390,69 @@ int main( int argc, char* argv[] )
 	kMeanArr->SetName( "Mean" );
 	kMeanArr->SetNumberOfTuples( vecMean.size() );
 
+	VTK_CREATE( vtkDoubleArray, kEig0Arr );
+	kEig0Arr->SetNumberOfComponents( 1 );
+	kEig0Arr->SetName( "Eig0" );
+	kEig0Arr->SetNumberOfTuples( vecMean.size() );
+
+	VTK_CREATE( vtkDoubleArray, kEig1Arr );
+	kEig1Arr->SetNumberOfComponents( 1 );
+	kEig1Arr->SetName( "Eig1" );
+	kEig1Arr->SetNumberOfTuples( vecMean.size() );
+
+	VTK_CREATE( vtkDoubleArray, kEig2Arr );
+	kEig2Arr->SetNumberOfComponents( 1 );
+	kEig2Arr->SetName( "Eig2" );
+	kEig2Arr->SetNumberOfTuples( vecMean.size() );
+
 	ofstream out2(str + "Mean.csv");
 
 	for( int i = 0; i < vecMean.size(); i++ )
 	{
-		kMeanArr->SetValue( 0, vecMean.at( i ) );
+		kMeanArr->SetValue( i, vecMean.at( i ) );
+		kEig0Arr->SetValue( i, vecEig0.at( i ) );
+		kEig1Arr->SetValue( i, vecEig1.at( i ) );
+		kEig2Arr->SetValue( i, vecEig2.at( i ) );
+
 		out2 << vecMean.at( i ) << "," << vecIdx.at( i ) << endl;
 	}
 	out2.close();
 
 	kMeanArr->Modified();
+	kEig0Arr->Modified();
+	kEig1Arr->Modified();
+	kEig2Arr->Modified();
 
 	VTK_CREATE( vtkTable, kMeanInput );
 	kMeanInput->AddColumn( kMeanArr );
+	kMeanInput->AddColumn( kEig0Arr );
+	kMeanInput->AddColumn( kEig1Arr );
+	kMeanInput->AddColumn( kEig2Arr );
 	kMeanInput->Update();
 
 	VTK_CREATE( vtkKMeansStatistics, kMean );
 	kMean->SetInput( vtkStatisticsAlgorithm::INPUT_DATA, kMeanInput );
-
 	kMean->SetColumnStatus( kMeanInput->GetColumnName( 0 ), 1 );
-	kMean->RequestSelectedColumns();
-	kMean->SetAssessOption( false );
-	kMean->SetLearnOption( true );
-	kMean->SetDeriveOption( true );
-	kMean->SetTestOption( false );
-	kMean->SetDefaultNumberOfClusters( 2 );
-	kMean->Update();
+	kMean->SetColumnStatus( kMeanInput->GetColumnName( 1 ), 1 );
+	kMean->SetColumnStatus( kMeanInput->GetColumnName( 2 ), 1 );
+	kMean->SetColumnStatus( kMeanInput->GetColumnName( 3 ), 1 );
 
+	kMean->RequestSelectedColumns();
+	kMean->SetAssessOption( true );
+	kMean->SetDefaultNumberOfClusters( 4 );
+	kMean->Update();
 //	kMean->GetOutput()->Dump();
 
 	vector < int > vecCluster;
 	vecCluster.clear();
 
-
 	cout << "# of Rows : " << kMean->GetOutput()->GetNumberOfRows() << endl;
 	cout << "# of Vectors : " << vecMean.size() << endl;
 
 	ofstream out( str + "kmean.csv" );
+
+	double meanIntenCluster[ 4 ] = { 0, 0, 0, 0 };
+	int cntCluster[ 4 ] = { 0, 0, 0, 0 };
 
 	for(int i = 0; i < vecMean.size(); i++ )
 	{
@@ -387,320 +463,175 @@ int main( int argc, char* argv[] )
 		out << ",";
 		out << vecMean.at(i);
 		out << endl;
+
+		meanIntenCluster[ iCluster ] = meanIntenCluster[ iCluster ] + vecMean.at( i );
+		cntCluster[ iCluster ] = cntCluster[ iCluster ] + 1;
 	}
 
+	for( int i = 0; i < 4; i++ )
+	{
+		meanIntenCluster[ i ] = meanIntenCluster[ i ] / (double) cntCluster[ i ];
+	}
+
+	// Find Cluster with minimum intensity
+	int idxMinCl = 0;
+	double minMeanCl = 10000000;
+
+	for( int i = 0; i < 4; i++ )
+	{
+		if( minMeanCl > meanIntenCluster[ i ] )
+		{
+			minMeanCl = meanIntenCluster[ i ];
+			idxMinCl = i;
+		}
+	}
 	out.close();
 
-//
-//	LabelType::Pointer kMeanLabel = LabelType::New();
-//	kMeanLabel->SetRegions( input->GetLargestPossibleRegion() );
-//	kMeanLabel->SetSpacing( input->GetSpacing() );
-//	kMeanLabel->SetOrigin( input->GetOrigin() );
-//	kMeanLabel->Allocate();
-//
-//	for( int x = 0; x < dim3[0]; x++ )
-//	for( int y = 0; y < dim3[1]; y++ )
-//	for( int z = 0; z < dim3[2]; z++ )
-//	{
-//		LabelType::IndexType idx;
-//		idx[0] = x;
-//		idx[1] = y;
-//		idx[2] = z;
-//
-//		unsigned long lVal = waterShedLabel->GetPixel( idx );
-//
-//		int arrIdx = (int)( lVal - 1 );
-//
-//		kMeanLabel->SetPixel( idx, 0 );
-//
-//		for( int j = 0; j < vecIdx.size(); j++ )
-//		{
-//			if( arrIdx == vecIdx.at( j ) )
-//			{
-//				kMeanLabel->SetPixel( idx, vecCluster.at( j ) );
-//				break;
-//			}
-//		}
-//	}
-//
-//	kMeanLabel->Update();
-//
-//	labelWriter->SetInput( kMeanLabel );
-//	labelWriter->SetFileName(str + "kMeanLabel.nrrd" );
-//	labelWriter->Update();
 
+	LabelType::Pointer kMeanLabel = LabelType::New();
+	kMeanLabel->SetRegions( input->GetLargestPossibleRegion() );
+	kMeanLabel->SetSpacing( input->GetSpacing() );
+	kMeanLabel->SetOrigin( input->GetOrigin() );
+	kMeanLabel->Allocate();
 
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.002 );
-//	watersheder->SetLevel( 0.2 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_2.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.003 );
-//	watersheder->SetLevel( 0.3 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_3.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.004 );
-//	watersheder->SetLevel( 0.4 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_4.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.005 );
-//	watersheder->SetLevel( 0.5 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_5.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.006 );
-//	watersheder->SetLevel( 0.6 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_6.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.007 );
-//	watersheder->SetLevel( 0.7 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_7.nrrd" );
-//	segLabelWriter->Update();
-//
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.008 );
-//	watersheder->SetLevel( 0.8 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_8.nrrd" );
-//	segLabelWriter->Update();
-//
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.009 );
-//	watersheder->SetLevel( 0.9 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_9.nrrd" );
-//	segLabelWriter->Update();
-//
-//	watersheder->SetInput( gradientFilter->GetOutput() );
-//	watersheder->SetThreshold( 0.01 );
-//	watersheder->SetLevel( 1.0 );
-//	watersheder->Update();
-//
-//	segLabelWriter->SetInput( watersheder->GetOutput() );
-//	segLabelWriter->SetFileName( str + "_watershed_10.nrrd" );
-//	segLabelWriter->Update();
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
+	{
+		LabelType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
 
-/*
-	// Binarization -Thresholding
-	BinaryFilterType::Pointer binaryFilter = BinaryFilterType::New();
-	binaryFilter->SetInput( input );
-	binaryFilter->SetInsideValue( 255 );
-	binaryFilter->SetOutsideValue( 0 );
+		unsigned long lVal = waterShedLabel->GetPixel( idx );
 
-	BinaryFilterType::Pointer binaryFilterL = BinaryFilterType::New();
-	binaryFilterL->SetInput( input );
-	binaryFilterL->SetInsideValue( 255 );
-	binaryFilterL->SetOutsideValue( 0 );
+		int arrIdx = (int)( lVal - 1 );
 
-	BinaryFilterType::Pointer binaryFilterH = BinaryFilterType::New();
-	binaryFilterH->SetInput( input );
-	binaryFilterH->SetInsideValue( 255 );
-	binaryFilterH->SetOutsideValue( 0 );
+		kMeanLabel->SetPixel( idx, 0 );
 
-	// Connected Component Analysis for Extremal Region Extraction
+		for( int j = 0; j < vecIdx.size(); j++ )
+		{
+			if( arrIdx == vecIdx.at( j ) )
+			{
+				if( vecCluster.at( j ) == idxMinCl )
+				{
+					kMeanLabel->SetPixel( idx, 2 );
+					break;
+				}
+			}
+		}
+	}
+	kMeanLabel->Update();
+
+	labelWriter->SetInput( kMeanLabel );
+	labelWriter->SetFileName(str + "kMeanLabel.nrrd" );
+	labelWriter->Update();
+
 	CCAFilterType::Pointer ccaFilter = CCAFilterType::New();
+	ccaFilter->SetInput( kMeanLabel );
+	ccaFilter->Update();
+
 	RelabelFilterType::Pointer sizeFilter = RelabelFilterType::New();
 	RelabelFilterType::ObjectSizeType  minSize = 5;
 	sizeFilter->SetMinimumObjectSize( minSize );
+	sizeFilter->SetInput( ccaFilter->GetOutput() );
+	sizeFilter->Update();
 
-	CCAFilterType::Pointer ccaFilterL = CCAFilterType::New();
-	RelabelFilterType::Pointer sizeFilterL = RelabelFilterType::New();
-	sizeFilterL->SetMinimumObjectSize( minSize );
+	labelWriter->SetInput( sizeFilter->GetOutput() );
+	labelWriter->SetFileName( str + "kMeanCCA.nrrd" );
+	labelWriter->Update();
 
-	CCAFilterType::Pointer ccaFilterH = CCAFilterType::New();
-	RelabelFilterType::Pointer sizeFilterH = RelabelFilterType::New();
-	sizeFilterH->SetMinimumObjectSize( minSize );
+	vector< unsigned short > vecBlobInten;
+	vecBlobInten.clear();
 
-	// Erosion Filter for Boundary Extraction
-	StructureElementType erodeBall;
-	erodeBall.SetRadius( 1 );
-	erodeBall.CreateStructuringElement();
+	vector< ImageType::IndexType > vecBlobIdx;
+	vecBlobIdx.clear();
 
-	BinErodeFilterType::Pointer erodeFilter = BinErodeFilterType::New();
-	erodeFilter->SetKernel( erodeBall );
-	BinErodeFilterType::Pointer erodeFilterL = BinErodeFilterType::New();
-	erodeFilterL->SetKernel( erodeBall );
-	BinErodeFilterType::Pointer erodeFilterH = BinErodeFilterType::New();
-	erodeFilterH->SetKernel( erodeBall );
-
-
-	// Erosion for CCA labels
-	GrayDilateFilterType::Pointer lDilateFilter = GrayDilateFilterType::New();
-	lDilateFilter->SetKernel( erodeBall );
-
-	GrayDilateFilterType::Pointer lDilateFilterL = GrayDilateFilterType::New();
-	lDilateFilterL->SetKernel( erodeBall );
-
-	GrayDilateFilterType::Pointer lDilateFilterH = GrayDilateFilterType::New();
-	lDilateFilterH->SetKernel( erodeBall );
-
-	SubtractorType::Pointer subtractor = SubtractorType::New();
-
-	int d = 100;
-
-	for( int i = statMin; i < statMax; i += 50 )
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
 	{
-		stringstream ssIdx;
-		ssIdx << i;
-		string sIdx = ssIdx.str();
+		ImageType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
 
-		int iL = i - d;
-		int iH = i + d;
+		unsigned char kL = kMeanLabel->GetPixel( idx );
 
-		// Find Qs
-		// Binarization - Thresholding
-		binaryFilter->SetLowerThreshold( 0 );
-		binaryFilter->SetUpperThreshold( i );
-		binaryFilter->Update();
-		LabelType::Pointer binLab = binaryFilter->GetOutput();
-
-		ccaFilter->SetInput( binLab );
-		ccaFilter->Update();
-
-		int nObj = ccaFilter->GetObjectCount();
-
-		cout << "No. Object : " << nObj << endl;
-
-
-
-//		if( nObj < 3 )
-//			break;
-//
-//		ImageType::Pointer Q = ccaFilter->GetOutput();
-//
-//		writer->SetInput(Q);
-//		writer->SetFileName( str + "_checkQ.nrrd" );
-//		writer->Update();
-//
-//		// Get boundary
-//		lDilateFilter->SetInput( Q );
-//		lDilateFilter->Update();
-//		ImageType::Pointer DilatedLab = lDilateFilter->GetOutput();
-//
-//		writer->SetInput(DilatedLab);
-//		writer->SetFileName( str + "_checkQE.nrrd" );
-//		writer->Update();
-//
-//		subtractor->SetInput1( DilatedLab );
-//		subtractor->SetInput2( Q );
-//		subtractor->Update();
-//
-//		ImageType::Pointer dQ = subtractor->GetOutput();
-//
-//		writer->SetInput(subtractor->GetOutput());
-//		writer->SetFileName( str + "_checkdQ.nrrd" );
-//		writer->Update();
-//
-//		// Find Extremal Regions at i
-//
-//
-//		// Q_i+delta, Q_i-delta
-//		binaryFilterL->SetLowerThreshold( 0 );
-//		binaryFilterL->SetUpperThreshold( iL );
-//		binaryFilterL->Update();
-//		LabelType::Pointer binLabL = binaryFilter->GetOutput();
-//
-//		binaryFilterH->SetLowerThreshold( 0 );
-//		binaryFilterH->SetUpperThreshold( iH );
-//		binaryFilterH->Update();
-//		LabelType::Pointer binLabH = binaryFilter->GetOutput();
-//
-//		ccaFilterL->SetInput( binLabL );
-//		ccaFilterL->Update();
-//		ccaFilterH->SetInput( binLabH );
-//		ccaFilterH->Update();
-//
-//		int nObjL = ccaFilterL->GetObjectCount();
-//		int nObjH = ccaFilterH->GetObjectCount();
-//
-//		ImageType::Pointer Q_L = ccaFilterL->GetOutput();
-//		ImageType::Pointer Q_H = ccaFilterH->GetOutput();
-
-//		lDilateFilterL->SetInput( Q_L );
-//		lDilateFilterL->Update();
-//		ImageType::Pointer DilatedLabdL = lDilateFilterL->GetOutput();
-//
-//		lDilateFilterH->SetInput( Q_H );
-//		lDilateFilterH->Update();
-//		ImageType::Pointer DilatedLabH = lDilateFilterH->GetOutput();
-
+		if( kL == 2 )
+		{
+			vecBlobInten.push_back( input->GetPixel( idx ) );
+			vecBlobIdx.push_back( idx );
+		}
 	}
-*/
+
+	VTK_CREATE( vtkDoubleArray, blobIntenArray );
+	blobIntenArray->SetNumberOfComponents( 1 );
+	blobIntenArray->SetName( "Intensity" );
+	blobIntenArray->SetNumberOfTuples( vecBlobInten.size() );
+
+	for( int i = 0; i < vecBlobInten.size(); i++ )
+	{
+		blobIntenArray->SetValue( i, vecBlobInten.at( i ) );
+	}
+
+	blobIntenArray->Modified();
+
+	VTK_CREATE( vtkTable, tableBlobInten );
+	tableBlobInten->AddColumn( blobIntenArray );
+	tableBlobInten->Update();
+
+
+	// 2nd KMeans
+	VTK_CREATE( vtkKMeansStatistics, kMean2 );
+	kMean2->SetInput( vtkStatisticsAlgorithm::INPUT_DATA, tableBlobInten );
+	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 0 ), 1 );
+
+	kMean2->RequestSelectedColumns();
+	kMean2->SetAssessOption( true );
+	kMean2->SetDefaultNumberOfClusters( 2 );
+	kMean2->Update();
+//	kMean->GetOutput()->Dump();
+
+	vector < int > vecCluster2;
+	vecCluster2.clear();
+
+	LabelType::Pointer kMeanLabel2 = LabelType::New();
+	kMeanLabel2->SetRegions( input->GetLargestPossibleRegion() );
+	kMeanLabel2->SetSpacing( input->GetSpacing() );
+	kMeanLabel2->SetOrigin( input->GetOrigin() );
+	kMeanLabel2->Allocate();
+
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
+	{
+		ImageType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
+
+		kMeanLabel2->SetPixel( idx, 0 );
+	}
+
+	for( int i = 0; i < vecBlobInten.size(); i++ )
+	{
+		ImageType::IndexType idx = vecBlobIdx.at( i );
+		vtkVariant v = kMean2->GetOutput()->GetValue( i, kMean2->GetOutput()->GetNumberOfColumns() - 1 );
+		int iCluster = v.ToInt() + 1;
+
+		kMeanLabel2->SetPixel( idx, iCluster );
+	}
+
+	kMeanLabel2->Update();
+
+	labelWriter->SetInput( kMeanLabel2 );
+	labelWriter->SetFileName(str + "kMeanLabel2nd.nrrd" );
+	labelWriter->Update();
+
+
 
 	cout << "Process Done" << endl;
-
-
-//	std::cout << " ***** LineShapeFilter " << std::endl;
-//
-//	// This filter does a hessian + gaussian filter
-//	// We have then access to eigen values
-//	LineShapeFilterType::Pointer lineShapeFilter = LineShapeFilterType::New();
-//
-//	lineShapeFilter->SetInput( reader->GetOutput() );
-//	// this parameter has to be about the width of a fiber
-//	lineShapeFilter->SetSigma( 5.0f );
-//	lineShapeFilter->SetExtractBrightLine( false );
-//	lineShapeFilter->EigenValuesExtractionOn();
-//	lineShapeFilter->LabelImageOn();
-//	lineShapeFilter->Update();
-
-//	// Binary image of the fiber-like shapes
-//	writer->SetInput( lineShapeFilter->GetBinaryOutput() );
-//	writer->SetFileName( str + "_binary.nrrd" );
-//	writer->Update();
-//
-//	// Label image depending of the sign of the 3 sorted eigenvalues
-//	writer->SetInput( lineShapeFilter->GetLabelOutput() );
-//	writer->SetFileName( str + "_label.nrrd" );
-//	writer->Update();
-//
-//	// Eigen value 0 in grayscale maske with the binary output
-//	realWriter->SetInput( lineShapeFilter->GetEigenValuesOutput( 0 ) );
-//	realWriter->SetFileName( str + "_eigen0.nrrd" );
-//	realWriter->Update();
-//
-//	// Eigen value 1 in grayscale maske with the binary output
-//	realWriter->SetInput( lineShapeFilter->GetEigenValuesOutput( 1 ) );
-//	realWriter->SetFileName( str + "_eigen1.nrrd" );
-//	realWriter->Update();
-//
-//	// Eigen value 2 in grayscale maske with the binary output
-//	realWriter->SetInput( lineShapeFilter->GetEigenValuesOutput( 2 ) );
-//	realWriter->SetFileName( str + "_eigen2.nrrd" );
-//	realWriter->Update();
 
 
 
@@ -732,7 +663,6 @@ int main( int argc, char* argv[] )
 
 
 	cout << dim[0] << ", " << dim[1] << ", " << dim[2] << endl;
-
 	float alpha = 0.5;
 	float beta = 0.5;
 	float c = 0.5;
