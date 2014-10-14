@@ -180,7 +180,7 @@ int main( int argc, char* argv[] )
 //	}
 //
 //	std::string str = std::string( argv[1] );
-	std::string str = "/home/shong/Research/FibersInConcrete/Data/StiffFibers_cropped/StiffFibers_cropped";
+	std::string str = "/home/shong/Research/FibersInConcrete/Data/StiffFibers_cropped";
 
 	WriterType::Pointer writer = WriterType::New();
 	RealWriterType::Pointer realWriter = RealWriterType::New();
@@ -205,7 +205,7 @@ int main( int argc, char* argv[] )
 	float stdI = statFilter->GetSigma();
 	float minImg = statFilter->GetMinimum();
 	float maxImg = statFilter->GetMaximum();
-	cout << "Mean : " << meanI << " Std : " << stdI << " Min : " << minImg << " Max : " << maxImg << endl;
+	cout << "Mean+ : " << meanI << " Std : " << stdI << " Min : " << minImg << " Max : " << maxImg << endl;
 
 	float statMin = meanI - 3 * stdI;
 	float statMax = meanI + 3 * stdI;
@@ -487,7 +487,6 @@ int main( int argc, char* argv[] )
 	}
 	out.close();
 
-
 	LabelType::Pointer kMeanLabel = LabelType::New();
 	kMeanLabel->SetRegions( input->GetLargestPossibleRegion() );
 	kMeanLabel->SetSpacing( input->GetSpacing() );
@@ -547,6 +546,16 @@ int main( int argc, char* argv[] )
 	vector< ImageType::IndexType > vecBlobIdx;
 	vecBlobIdx.clear();
 
+	vector< double > vecBlobEig0;
+	vecBlobEig0.clear();
+
+	vector< double > vecBlobEig1;
+	vecBlobEig1.clear();
+
+	vector< double > vecBlobEig2;
+	vecBlobEig2.clear();
+
+
 	for( int x = 0; x < dim3[0]; x++ )
 	for( int y = 0; y < dim3[1]; y++ )
 	for( int z = 0; z < dim3[2]; z++ )
@@ -561,6 +570,9 @@ int main( int argc, char* argv[] )
 		if( kL == 2 )
 		{
 			vecBlobInten.push_back( input->GetPixel( idx ) );
+			vecBlobEig0.push_back( eigImg0->GetPixel( idx ) );
+			vecBlobEig1.push_back( eigImg1->GetPixel( idx ) );
+			vecBlobEig2.push_back( eigImg2->GetPixel( idx ) );
 			vecBlobIdx.push_back( idx );
 		}
 	}
@@ -570,17 +582,49 @@ int main( int argc, char* argv[] )
 	blobIntenArray->SetName( "Intensity" );
 	blobIntenArray->SetNumberOfTuples( vecBlobInten.size() );
 
+	VTK_CREATE( vtkDoubleArray, blobBlobnessArray );
+	blobBlobnessArray->SetNumberOfComponents( 1 );
+	blobBlobnessArray->SetName( "Blobness" );
+	blobBlobnessArray->SetNumberOfTuples( vecBlobInten.size() );
+
+	VTK_CREATE( vtkDoubleArray, blobStructurenessArray );
+	blobStructurenessArray->SetNumberOfComponents( 1 );
+	blobStructurenessArray->SetName( "Structureness" );
+	blobStructurenessArray->SetNumberOfTuples( vecBlobInten.size() );
+
+	VTK_CREATE( vtkDoubleArray, blobVesselnessArray );
+	blobVesselnessArray->SetNumberOfComponents( 1 );
+	blobVesselnessArray->SetName( "Vesselness" );
+	blobVesselnessArray->SetNumberOfTuples( vecBlobInten.size() );
+
+
 	for( int i = 0; i < vecBlobInten.size(); i++ )
 	{
+		double eigVal0 = vecBlobEig0.at( i );
+		double eigVal1 = vecBlobEig1.at( i );
+		double eigVal2 = vecBlobEig2.at( i );
+
+		double blobness = abs( eigVal0 ) / sqrt( abs( eigVal1 * eigVal2 ) ) * 20000;
+		double structureness = eigVal0 * eigVal0 + eigVal1 * eigVal1 + eigVal2 * eigVal2;
+		double vesselness = abs( eigVal1 / eigVal2 ) * 20000;
+
 		blobIntenArray->SetValue( i, vecBlobInten.at( i ) );
+		blobBlobnessArray->SetValue( i, blobness );
+		blobStructurenessArray->SetValue( i, structureness );
+		blobVesselnessArray->SetValue( i, vesselness );
 	}
 
 	blobIntenArray->Modified();
+	blobBlobnessArray->Modified();
+	blobStructurenessArray->Modified();
+	blobVesselnessArray->Modified();
 
 	VTK_CREATE( vtkTable, tableBlobInten );
 	tableBlobInten->AddColumn( blobIntenArray );
+	tableBlobInten->AddColumn( blobBlobnessArray );
+	tableBlobInten->AddColumn( blobStructurenessArray );
+	tableBlobInten->AddColumn( blobVesselnessArray );
 	tableBlobInten->Update();
-
 
 	// 2nd KMeans
 	VTK_CREATE( vtkKMeansStatistics, kMean2 );
@@ -602,6 +646,11 @@ int main( int argc, char* argv[] )
 	kMeanLabel2->SetOrigin( input->GetOrigin() );
 	kMeanLabel2->Allocate();
 
+	double meanI2ndCl0;
+	double meanI2ndCl1;
+	double cnt2ndCl0;
+	double cnt2ndCl1;
+
 	for( int x = 0; x < dim3[0]; x++ )
 	for( int y = 0; y < dim3[1]; y++ )
 	for( int z = 0; z < dim3[2]; z++ )
@@ -621,6 +670,17 @@ int main( int argc, char* argv[] )
 		int iCluster = v.ToInt() + 1;
 
 		kMeanLabel2->SetPixel( idx, iCluster );
+
+		if( iCluster == 1 )
+		{
+			meanI2ndCl0 += vecBlobInten.at( i );
+			cnt2ndCl0++;
+		}
+		else
+		{
+			meanI2ndCl1 += vecBlobInten.at( i );
+			cnt2ndCl1++;
+		}
 	}
 
 	kMeanLabel2->Update();
@@ -629,10 +689,68 @@ int main( int argc, char* argv[] )
 	labelWriter->SetFileName(str + "kMeanLabel2nd.nrrd" );
 	labelWriter->Update();
 
+	// Write Only Blob Candidates
+	meanI2ndCl0 /= cnt2ndCl0;
+	meanI2ndCl1 /= cnt2ndCl1;
 
+	int min2ndIdx = 0;
 
+	if( meanI2ndCl0 > meanI2ndCl1 )
+		min2ndIdx = 1;
+	else
+		min2ndIdx = 2;
+
+	LabelType::Pointer kMeanLabel3 = LabelType::New();
+	kMeanLabel3->SetRegions( input->GetLargestPossibleRegion() );
+	kMeanLabel3->SetSpacing( input->GetSpacing() );
+	kMeanLabel3->SetOrigin( input->GetOrigin() );
+	kMeanLabel3->Allocate();
+
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
+	{
+		ImageType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
+
+		kMeanLabel3->SetPixel( idx, 0 );
+	}
+
+	for( int i = 0; i < vecBlobInten.size(); i++ )
+	{
+		ImageType::IndexType idx = vecBlobIdx.at( i );
+		vtkVariant v = kMean2->GetOutput()->GetValue( i, kMean2->GetOutput()->GetNumberOfColumns() - 1 );
+		int iCluster = v.ToInt() ;
+
+		if( iCluster == min2ndIdx )
+			kMeanLabel3->SetPixel( idx, iCluster );
+	}
+
+	kMeanLabel3->Update();
+
+	labelWriter->SetInput( kMeanLabel3 );
+	labelWriter->SetFileName(str + "kMeanLabel2ndBlobCandidates.nrrd" );
+	labelWriter->Update();
+
+	CCAFilterType::Pointer ccaFilter2nd = CCAFilterType::New();
+	ccaFilter2nd->SetInput( kMeanLabel3 );
+	ccaFilter2nd->Update();
+
+	RelabelFilterType::Pointer sizeFilter2nd = RelabelFilterType::New();
+	sizeFilter2nd->SetMinimumObjectSize( minSize );
+	sizeFilter2nd->SetInput( ccaFilter2nd->GetOutput() );
+	sizeFilter2nd->Update();
+
+	labelWriter->SetInput( sizeFilter2nd->GetOutput() );
+	labelWriter->SetFileName( str + "kMeanLabel2ndBlobCandidatesCCA.nrrd" );
+	labelWriter->Update();
+
+	int nObj = sizeFilter2nd->GetNumberOfObjects();
+
+	// Find Cluster with minimum intensity
 	cout << "Process Done" << endl;
-
 
 
 /*
