@@ -310,9 +310,9 @@ int main( int argc, char* argv[] )
 	gradientFilter->SetInput( input );
 	gradientFilter->Update();
 
-//	realWriter->SetInput( gradientFilter->GetOutput() );
-//	realWriter->SetFileName( str + "_gradMag.nrrd" );
-//	realWriter->Update();
+	realWriter->SetInput( gradientFilter->GetOutput() );
+	realWriter->SetFileName( str + "_gradMag.nrrd" );
+	realWriter->Update();
 
 	WatershedFilterType::Pointer watersheder = WatershedFilterType::New();
 	watersheder->SetInput( gradientFilter->GetOutput() );
@@ -550,11 +550,12 @@ int main( int argc, char* argv[] )
 		{
 			if( arrIdx == vecIdx.at( j ) )
 			{
-				if( vecCluster.at( j ) == idxMinCl )
-				{
-					kMeanLabel->SetPixel( idx, 2 );
-					break;
-				}
+				kMeanLabel->SetPixel( idx, vecCluster.at( j ) );
+//				if( vecCluster.at( j ) == idxMinCl )
+//				{
+//					kMeanLabel->SetPixel( idx, 2 );
+//					break;
+//				}
 			}
 		}
 	}
@@ -780,7 +781,7 @@ int main( int argc, char* argv[] )
 	ccaFilter2nd->Update();
 
 	SegRelabelFilterType::Pointer sizeFilter2nd = SegRelabelFilterType::New();
-	sizeFilter2nd->SetMinimumObjectSize( 5 );
+	sizeFilter2nd->SetMinimumObjectSize( 2 );
 	sizeFilter2nd->SetInput( ccaFilter2nd->GetOutput() );
 	sizeFilter2nd->Update();
 
@@ -794,6 +795,8 @@ int main( int argc, char* argv[] )
 	// 2nd Cluster Result Shape Refinement
 	// Get Cubic OBB
 	int nObj = sizeFilter2nd->GetNumberOfObjects();
+
+	cout << "# of Objects : " << nObj << endl;
 
 	int* lx = new int[ nObj ];
 	int* hx = new int[ nObj ];
@@ -830,6 +833,12 @@ int main( int argc, char* argv[] )
 
 		int labIdx = segLabelVal - 1;
 
+		if( labIdx < 0 )
+			continue;
+
+		cout << "Label Index : " << labIdx << endl;
+
+
 		if( lx[ labIdx ] > x ) lx[ labIdx ] = x;
 		if( ly[ labIdx ] > y ) ly[ labIdx ] = y;
 		if( lz[ labIdx ] > z ) lz[ labIdx ] = z;
@@ -846,9 +855,9 @@ int main( int argc, char* argv[] )
 	for( int i = 0; i < nObj; i++ )
 	{
 		double ratioMax = 0;
-		double ratioXY = (double)( hx[i] - lx[i] ) / (double)( hy[i] - ly[i] );
-		double ratioXZ = (double)( hx[i] - lx[i] ) / (double)( hz[i] - lz[i] );
-		double ratioYZ = (double)( hy[i] - ly[i] ) / (double)( hz[i] - lz[i] );
+		double ratioXY = (double)( hx[i] - lx[i] + 1) / (double)( hy[i] - ly[i] + 1);
+		double ratioXZ = (double)( hx[i] - lx[i] + 1) / (double)( hz[i] - lz[i] + 1);
+		double ratioYZ = (double)( hy[i] - ly[i] + 1) / (double)( hz[i] - lz[i] + 1);
 		double ratioYX = 1.0 / ratioXY;
 		double ratioZX = 1.0 / ratioXZ;
 		double ratioZY = 1.0 / ratioYZ;
@@ -857,15 +866,18 @@ int main( int argc, char* argv[] )
 
 		for( int j = 0; j < 6; j++ )
 		{
-			if( ratioMax < whR[ i ] ) ratioMax = whR[ i ];
+			if( ratioMax < whR[ j ] ) ratioMax = whR[ j ];
 		}
 
-		double obbVol = ( hx - lx ) * ( hy - ly ) * ( hz - lz );
+
+		double obbVol = ( hx[ i ] - lx[ i ] + 1 ) * ( hy[ i ] - ly[ i ] + 1 ) * ( hz[ i ] - lz[ i ] + 1 );
+		if( obbVol <= 0 ) obbVol = 1;
+
 		double ratioVol = (double) sizeFilter2nd->GetSizeOfObjectsInPixels()[ i ] / obbVol;
 
 		cout << "Index : " << i << " Volume Ratio : " << ratioVol << " Line Ratio : " << ratioMax << endl;
 
-		if( ratioMax > 2.0 || ratioVol < 0.4 )
+		if( ratioMax > 4.0 || ratioVol < 0.1 )
 		{
 			vecFlaws.push_back( i );
 		}
