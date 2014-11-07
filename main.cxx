@@ -24,6 +24,8 @@ const unsigned int Dim = 3;
 typedef float RealType;
 typedef unsigned char BinType;
 
+
+
 typedef unsigned short 					PixelType;
 typedef itk::Image< PixelType, Dim > 	ImageType;
 typedef itk::Image< RealType, Dim > 	RealImageType;
@@ -118,8 +120,6 @@ typedef itk::ScalarImageKmeansImageFilter< ImageType, LabelType > 		KMeansType;
 typedef itk::StatisticsImageFilter< SegLabelType > 						LabelStaticFilterType;
 typedef itk::StatisticsImageFilter< RealImageType > 							RealStatisticFilterType;
 
-
-
 typedef itk::ConnectedComponentImageFilter< LabelType, ImageType >		CCAFilterType;
 typedef itk::RelabelComponentImageFilter< ImageType, LabelType > 		RelabelFilterType;
 typedef itk::RelabelComponentImageFilter< ImageType, SegLabelType > 		SegRelabelFilterType;
@@ -132,6 +132,11 @@ typedef itk::SubtractImageFilter< ImageType, ImageType > 				SubtractorType;
 
 typedef itk::GradientMagnitudeImageFilter< ImageType, RealImageType > 	GradientMagnitudeFilterType;
 typedef itk::WatershedImageFilter< RealImageType > 						WatershedFilterType;
+
+#include "itkN4BiasFieldCorrectionImageFilter.h"
+typedef itk::N4BiasFieldCorrectionImageFilter< ImageType, LabelType, ImageType > 	N4CorrectorType;
+
+
 
 #include "vtkSmartPointer.h"
 #include "vtkDoubleArray.h"
@@ -184,7 +189,7 @@ int main( int argc, char* argv[] )
 //	}
 //
 //	std::string str = std::string( argv[1] );
-	std::string str = "/home/shong/Research/FibersInConcrete/Data/StiffFibers_cropped";
+	std::string str = "/home/shong/Research/FibersInConcrete/Yohan/data/StiffFibers_cropped/StiffFibers_cropped";
 
 	WriterType::Pointer writer = WriterType::New();
 	RealWriterType::Pointer realWriter = RealWriterType::New();
@@ -210,8 +215,8 @@ int main( int argc, char* argv[] )
 	float maxImg = statFilter->GetMaximum();
 	cout << "Mean+ : " << meanI << " Std : " << stdI << " Min : " << minImg << " Max : " << maxImg << endl;
 
-	float statMin = meanI - 3 * stdI;
-	float statMax = meanI + 3 * stdI;
+	float statMin = meanI - 6 * stdI;
+	float statMax = meanI + 6 * stdI;
 	cout << "StatMin : " << statMin << " StatMax : " << statMax << endl;
 
 	ImageType::RegionType region = input->GetLargestPossibleRegion();
@@ -226,33 +231,65 @@ int main( int argc, char* argv[] )
 		idx[1] = y;
 		idx[2] = z;
 
-		unsigned short val = input->GetPixel( idx );
+		unsigned short val2 = input->GetPixel( idx );
 
-		if( val < statMin )
+		if( val2 < statMin )
 			input->SetPixel( idx, statMin );
-		else if( val > statMax )
+		else if( val2 > statMax )
 			input->SetPixel( idx, statMax );
 	}
 
 	input->Update();
 
-	writer->SetInput( input );
-	writer->SetFileName( str + "_IntensityCut.nrrd" );
+//	writer->SetInput( input );
+//	writer->SetFileName( str + "_IntensityCut.nrrd" );
+//	writer->Update();
+
+	std::cout << " ***** Start " << std::endl;
+
+	// N3 MRI Bias Field
+	LabelType::Pointer N4Label = LabelType::New();
+	N4Label->SetLargestPossibleRegion( region );
+	N4Label->Allocate();
+
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
+	{
+		LabelType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
+
+		N4Label->SetPixel( idx, 1 );
+	}
+	N4Label->Update();
+
+	std::cout << " ***** Image Correction " << std::endl;
+
+	N4CorrectorType::Pointer corrector = N4CorrectorType::New();
+	corrector->SetInput( input );
+	corrector->SetMaskImage( N4Label );
+	corrector->Update();
+
+	ImageType::Pointer N4CorrectedImg = corrector->GetOutput();
+	writer->SetInput( N4CorrectedImg );
+	writer->SetFileName( str + "_N4Corrected.nrrd" );
 	writer->Update();
 
-	std::cout << " ***** LineShapeFilter " << std::endl;
-
+	std::cout << " ***** Line Shape Filter " << std::endl;
 	// This filter does a hessian + gaussian filter
 	// We have then access to eigen values
 	LineShapeFilterType::Pointer lineShapeFilter = LineShapeFilterType::New();
 
-	lineShapeFilter->SetInput( input );
+	lineShapeFilter->SetInput( N4CorrectedImg );
 	// this parameter has to be about the width of a fiber
 	lineShapeFilter->SetSigma( 2.0f );
 	lineShapeFilter->SetExtractBrightLine( false );
 	lineShapeFilter->EigenValuesExtractionOn();
 	lineShapeFilter->LabelImageOn();
 	lineShapeFilter->Update();
+
 	// Binary image of the fiber-like shapes
 	writer->SetInput( lineShapeFilter->GetBinaryOutput() );
 	writer->SetFileName( str + "_binary.nrrd" );
@@ -317,12 +354,12 @@ int main( int argc, char* argv[] )
 	WatershedFilterType::Pointer watersheder = WatershedFilterType::New();
 	watersheder->SetInput( gradientFilter->GetOutput() );
 	watersheder->SetThreshold( 0.001 );
-	watersheder->SetLevel( 0.2 );
+	watersheder->SetLevel( 0.12 );
 	watersheder->Update();
 	SegLabelType::Pointer waterShedLabel = watersheder->GetOutput();
 
 	segLabelWriter->SetInput( waterShedLabel );
-	segLabelWriter->SetFileName( str + "_watershed_001_2.nrrd" );
+	segLabelWriter->SetFileName( str + "_watershed_001_15.nrrd" );
 	segLabelWriter->Update();
 
 	// Label Statisitic Filter
@@ -344,7 +381,7 @@ int main( int argc, char* argv[] )
 
 	int* sizeArr = new int[ (int)maxL ];
 
-	for( int i = 1; i < maxL; i++ )
+	for( int i = 0; i < maxL; i++ )
 	{
 		meanArr[ i ] = 0;
 		sizeArr[ i ] = 0;
@@ -397,15 +434,27 @@ int main( int argc, char* argv[] )
 	vector< int > vecIdx;
 	vecIdx.clear();
 
+	int checkSize = 0;
+	int check0 = 0;
+	int checkTooBig = 0;
+	int checkGood = 0;
+
+
 	for( int i = 0; i < maxL; i++ )
 	{
 		double meanVal = meanArr[ i ];
 		double sizeVal = (double) sizeArr[ i ] ;
 
 		if( sizeVal == 0 )
+		{
+			check0++;
 			continue;
+		}
 		else if( sizeVal > dim3[0] * dim3[1] * dim3[2] / 3 )
+		{
+			checkTooBig++;
 			continue;
+		}
 		else
 		{
 			meanArr[ i ] = meanVal / sizeVal;
@@ -418,8 +467,16 @@ int main( int argc, char* argv[] )
 			vecEig0.push_back( eig0Arr[ i ] );
 			vecEig1.push_back( eig1Arr[ i ] );
 			vecEig2.push_back( eig2Arr[ i ] );
+			checkSize += sizeVal;
+			checkGood++;
 		}
 	}
+
+	if( checkSize == dim3[0] * dim3[1] * dim3[2] )
+		cout << "Correct Size -" << "Size 0 : " << check0 << " Size Too big : " << checkTooBig << " Good Size : " << checkGood << endl;
+	else
+		cout << "Incorrect Size : " << checkSize << "Original Size : " << dim3[0] * dim3[1] * dim3[2] << endl;
+
 
 	cout << "Vector Size : " << vecMean.size() << endl;
 
@@ -477,7 +534,7 @@ int main( int argc, char* argv[] )
 
 	kMean->RequestSelectedColumns();
 	kMean->SetAssessOption( true );
-	kMean->SetDefaultNumberOfClusters( 4 );
+	kMean->SetDefaultNumberOfClusters( 3 );
 	kMean->Update();
 //	kMean->GetOutput()->Dump();
 
@@ -489,8 +546,8 @@ int main( int argc, char* argv[] )
 
 	ofstream out( str + "kmean.csv" );
 
-	double meanIntenCluster[ 4 ] = { 0, 0, 0, 0 };
-	int cntCluster[ 4 ] = { 0, 0, 0, 0 };
+	double meanIntenCluster[ 3 ] = { 0, 0, 0 }; //, 0 };
+	int cntCluster[ 3 ] = { 0, 0, 0 }; //, 0 };
 
 	for(int i = 0; i < vecMean.size(); i++ )
 	{
@@ -506,7 +563,7 @@ int main( int argc, char* argv[] )
 		cntCluster[ iCluster ] = cntCluster[ iCluster ] + 1;
 	}
 
-	for( int i = 0; i < 4; i++ )
+	for( int i = 0; i < 3; i++ )
 	{
 		meanIntenCluster[ i ] = meanIntenCluster[ i ] / (double) cntCluster[ i ];
 	}
@@ -515,7 +572,7 @@ int main( int argc, char* argv[] )
 	int idxMinCl = 0;
 	double minMeanCl = 10000000;
 
-	for( int i = 0; i < 4; i++ )
+	for( int i = 0; i < 3; i++ )
 	{
 		if( minMeanCl > meanIntenCluster[ i ] )
 		{
@@ -550,12 +607,12 @@ int main( int argc, char* argv[] )
 		{
 			if( arrIdx == vecIdx.at( j ) )
 			{
-				kMeanLabel->SetPixel( idx, vecCluster.at( j ) );
-//				if( vecCluster.at( j ) == idxMinCl )
-//				{
-//					kMeanLabel->SetPixel( idx, 2 );
-//					break;
-//				}
+//				kMeanLabel->SetPixel( idx, vecCluster.at( j ) );
+				if( vecCluster.at( j ) == idxMinCl )
+				{
+					kMeanLabel->SetPixel( idx, 2 );
+					break;
+				}
 			}
 		}
 	}
@@ -570,7 +627,7 @@ int main( int argc, char* argv[] )
 	ccaFilter->Update();
 
 	RelabelFilterType::Pointer sizeFilter = RelabelFilterType::New();
-	RelabelFilterType::ObjectSizeType  minSize = 5;
+	RelabelFilterType::ObjectSizeType  minSize = 2;
 	sizeFilter->SetMinimumObjectSize( minSize );
 	sizeFilter->SetInput( ccaFilter->GetOutput() );
 	sizeFilter->Update();
@@ -787,7 +844,6 @@ int main( int argc, char* argv[] )
 
 	SegLabelType::Pointer blobCCALabel = sizeFilter2nd->GetOutput();
 
-
 	segLabelWriter->SetInput( blobCCALabel );
 	segLabelWriter->SetFileName( str + "kMeanLabel2ndBlobCandidatesCCA.nrrd" );
 	segLabelWriter->Update();
@@ -835,9 +891,6 @@ int main( int argc, char* argv[] )
 
 		if( labIdx < 0 )
 			continue;
-
-		cout << "Label Index : " << labIdx << endl;
-
 
 		if( lx[ labIdx ] > x ) lx[ labIdx ] = x;
 		if( ly[ labIdx ] > y ) ly[ labIdx ] = y;
@@ -917,7 +970,6 @@ int main( int argc, char* argv[] )
 	segLabelWriter->SetFileName(str + "kMeanLabel2ndBlobRefined.nrrd" );
 	segLabelWriter->Update();
 
-
 	// Termination
 	delete [] lx;
 	delete [] ly;
@@ -926,15 +978,7 @@ int main( int argc, char* argv[] )
 	delete [] hy;
 	delete [] hz;
 
-	cout << "Process Done" << endl;
 
-
-/*
-	RealImageType::Pointer eigImg0 = lineShapeFilter->GetEigenValuesOutput( 0 );
-	RealImageType::Pointer eigImg1 = lineShapeFilter->GetEigenValuesOutput( 1 );
-	RealImageType::Pointer eigImg2 = lineShapeFilter->GetEigenValuesOutput( 2 );
-
-	RealImageType::RegionType region = eigImg0->GetLargestPossibleRegion();
 	RealImageType::SizeType dim = region.GetSize();
 
 	RealImageType::Pointer blobImg = RealImageType::New();
@@ -949,17 +993,23 @@ int main( int argc, char* argv[] )
 	blobBin->SetOrigin( eigImg0->GetOrigin() );
 	blobBin->Allocate();
 
+	LabelType::Pointer vesselBin = LabelType::New();
+	vesselBin->SetRegions( eigImg0->GetLargestPossibleRegion() );
+	vesselBin->SetSpacing( eigImg0->GetSpacing() );
+	vesselBin->SetOrigin( eigImg0->GetOrigin() );
+	vesselBin->Allocate();
+
+
 	RealImageType::Pointer vesselImg = RealImageType::New();
 	vesselImg->SetRegions( eigImg0->GetLargestPossibleRegion() );
 	vesselImg->SetSpacing( eigImg0->GetSpacing() );
 	vesselImg->SetOrigin( eigImg0->GetOrigin() );
 	vesselImg->Allocate();
 
-
 	cout << dim[0] << ", " << dim[1] << ", " << dim[2] << endl;
 	float alpha = 0.5;
 	float beta = 0.5;
-	float c = 0.5;
+	float c = 2000;
 
 	for( int x = 0; x < dim[0]; x++ )
 	for( int y = 0; y < dim[1]; y++ )
@@ -983,15 +1033,24 @@ int main( int argc, char* argv[] )
 
 		float Ves = ( 1 - exp( -( aVal*aVal ) / ( 2 * alpha * alpha ) ) ) * ( exp( -(blVal * blVal) / ( 2 * beta * beta ) ) ) * ( 1 - exp( -( sVal * sVal ) / ( 2 * c * c ) ) );
 //		float V0 = 1 - exp( ( -blVal * blVal ) / ( 2 * beta * beta ) );
-		blobImg->SetPixel( idx, V0 );
-		vesselImg->SetPixel( idx, blVal );
+		blobImg->SetPixel( idx, V0 * 10000 );
+		vesselImg->SetPixel( idx, Ves * 10000 );
 
 		if( V0 > 0.2 && lambda1 < 0 && lambda2 < 0 && lambda3 < 0 )
 			blobBin->SetPixel( idx, 255 );
 		else
 			blobBin->SetPixel( idx, 0 );
+
+		int vVal = lineShapeFilter->GetLabelOutput()->GetPixel( idx );
+
+		if( vVal == 0 )
+			vesselBin->SetPixel( idx, 1 );
+		else
+			vesselBin->SetPixel( idx, 0 );
+
 	}
 
+	vesselBin->Update();
 	blobImg->Update();
 	blobBin->Update();
 	vesselImg->Update();
@@ -1011,24 +1070,9 @@ int main( int argc, char* argv[] )
 //	writer->SetInput( blobBin );
 //	writer->SetFileName( str + "_label.nrrd" );
 //	writer->Update();
-
-	cout << "Blob Written" << endl;
-
-	CCAFilterType::Pointer ccaFilter = CCAFilterType::New();
-	ccaFilter->SetInput( blobBin );
-	ccaFilter->Update();
-
-	cout << "# Objects : " << ccaFilter->GetObjectCount() << endl;
-
-	RelabelFilterType::Pointer sizeFilter = RelabelFilterType::New();
-	RelabelFilterType::ObjectSizeType  minSize = 10;
-	sizeFilter->SetInput( ccaFilter->GetOutput () );
-	sizeFilter->SetMinimumObjectSize( minSize );
-	sizeFilter->Update();
-
-	labelWriter->SetInput( sizeFilter->GetOutput() );
-	labelWriter->SetFileName( str + "labelS.nrrd" );
-	labelWriter->Update();
+//	labelWriter->SetInput( sizeFilter->GetOutput() );
+//	labelWriter->SetFileName( str + "labelS.nrrd" );
+//	labelWriter->Update();
 
 	// Vesselness output (fiber-shape likelihood)
 	realWriter->SetInput( lineShapeFilter->GetVesselnessOutput() );
@@ -1045,9 +1089,9 @@ int main( int argc, char* argv[] )
 	writer->SetFileName( str + "_label.nrrd" );
 	writer->Update();
 
-	cout << "Process Done"<< endl;
-*/
-
+	labelWriter->SetInput( vesselBin );
+	labelWriter->SetFileName( str+"_labelV.nrrd" );
+	labelWriter->Update();
 
 //
 //	KMeansType::Pointer KmeanFilter = KMeansType::New();
@@ -1146,5 +1190,6 @@ int main( int argc, char* argv[] )
 //	realWriter->SetFileName( str + "_fiber_extraction.nrrd" );
 //	realWriter->Update();
 
+	cout << "Process Done" << endl;
 	return EXIT_SUCCESS;
 }
