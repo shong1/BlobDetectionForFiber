@@ -853,17 +853,17 @@ int main( int argc, char* argv[] )
 
 	VTK_CREATE( vtkTable, kMeanInput );
 	kMeanInput->AddColumn( kMeanArr );
-	kMeanInput->AddColumn( kEig0Arr );
-	kMeanInput->AddColumn( kEig1Arr );
-	kMeanInput->AddColumn( kEig2Arr );
+//	kMeanInput->AddColumn( kEig0Arr );
+//	kMeanInput->AddColumn( kEig1Arr );
+//	kMeanInput->AddColumn( kEig2Arr );
 	kMeanInput->Update();
 
 	VTK_CREATE( vtkKMeansStatistics, kMean );
 	kMean->SetInput( vtkStatisticsAlgorithm::INPUT_DATA, kMeanInput );
 	kMean->SetColumnStatus( kMeanInput->GetColumnName( 0 ), 1 );
-	kMean->SetColumnStatus( kMeanInput->GetColumnName( 1 ), 1 );
-	kMean->SetColumnStatus( kMeanInput->GetColumnName( 2 ), 1 );
-	kMean->SetColumnStatus( kMeanInput->GetColumnName( 3 ), 1 );
+//	kMean->SetColumnStatus( kMeanInput->GetColumnName( 1 ), 1 );
+//	kMean->SetColumnStatus( kMeanInput->GetColumnName( 2 ), 1 );
+//	kMean->SetColumnStatus( kMeanInput->GetColumnName( 3 ), 1 );
 
 	kMean->RequestSelectedColumns();
 	kMean->SetAssessOption( true );
@@ -886,9 +886,7 @@ int main( int argc, char* argv[] )
 	{
 		vtkVariant v = kMean->GetOutput()->GetValue( i, kMean->GetOutput()->GetNumberOfColumns() - 1 );
 		int iCluster = v.ToInt();
-		vecCluster.push_back( iCluster );++
-
-
+		vecCluster.push_back( iCluster );
 		out << iCluster;
 		out << ",";
 		out << vecMean.at(i);
@@ -962,7 +960,7 @@ int main( int argc, char* argv[] )
 	ccaFilter->Update();
 
 	RelabelFilterType::Pointer sizeFilter = RelabelFilterType::New();
-	RelabelFilterType::ObjectSizeType  minSize = 2;
+	RelabelFilterType::ObjectSizeType  minSize = 0.4;
 	sizeFilter->SetMinimumObjectSize( minSize );
 	sizeFilter->SetInput( ccaFilter->GetOutput() );
 	sizeFilter->Update();
@@ -1035,7 +1033,6 @@ int main( int argc, char* argv[] )
 		double vesselness = vesselImg->GetPixel( idx );
 
 		blobIntenArray->SetValue( i, vecBlobInten.at( i ) );
-		blobBlobnessArray->SetValue( i, vecBlobEig0.at( i ) );
 		blobVesselnessArray->SetValue( i, vesselness );
 		blobBlobnessArray->SetValue( i, blobness );
 	}
@@ -1166,7 +1163,7 @@ int main( int argc, char* argv[] )
 	ccaFilter2nd->Update();
 
 	SegRelabelFilterType::Pointer sizeFilter2nd = SegRelabelFilterType::New();
-	sizeFilter2nd->SetMinimumObjectSize( 2 );
+	sizeFilter2nd->SetMinimumObjectSize( 0.4 );
 	sizeFilter2nd->SetInput( ccaFilter2nd->GetOutput() );
 	sizeFilter2nd->Update();
 

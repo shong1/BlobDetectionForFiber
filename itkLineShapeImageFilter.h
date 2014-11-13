@@ -187,7 +187,6 @@ protected:
 			bool operator != ( const AbsoluteSortedEigenValuesArrayExtractor & ) const { return false; }
 			bool operator == ( const AbsoluteSortedEigenValuesArrayExtractor & other ) const { return !( *this != other ); }
 			inline EigenValuesArrayType operator()( const TensorType & A ) const;
-
 	};
 
 	class SignedBasedEigenValuesClassifier
