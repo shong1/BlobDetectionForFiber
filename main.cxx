@@ -54,7 +54,7 @@ typedef itk::SkeletonGraph< GraphTraitsType >	GraphType;
 typedef itk::ImageFileReader< ImageType > ReaderType;
 typedef itk::ImageFileReader< RealImageType > RealReaderType;
 typedef itk::ImageFileWriter< ImageType > WriterType;
-
+typedef itk::ImageFileWriter< RealImageType >							RealWriterType;
 typedef itk::ImageFileWriter< LabelType > LabelWriterType;
 
 typedef itk::ImageFileWriter<  SegLabelType > SegLabelWriterType;
@@ -104,7 +104,6 @@ typedef AVLTreeNodeType													TreeNodeType;
 typedef itk::LineShapeImageFilter< ImageType > 							LineShapeFilterType;
 typedef itk::BinaryThinningImageFilter3D< ImageType, ImageType >		BinaryThinningFilterType;
 
-typedef itk::ImageFileWriter< RealImageType >							RealWriterType;
 
 typedef itk::SkeletonToGraphFilter< ImageType, GraphType, RealImageType, ImageType >	SkeletonToGraphFilterType;
 typedef itk::GraphToSkeletonImageFilter< GraphType, RealImageType >			GraphToSkeletonFilterType;
@@ -190,6 +189,7 @@ int main( int argc, char* argv[] )
 //
 //	std::string str = std::string( argv[1] );
 	std::string str = "/home/shong/Research/FibersInConcrete/Yohan/data/StiffFibers_cropped/StiffFibers_cropped";
+	std::string strRes = "/home/shong/Research/FibersInConcrete/Yohan/data/StiffFibers_cropped/Res/StiffFibers_cropped";
 
 	WriterType::Pointer writer = WriterType::New();
 	RealWriterType::Pointer realWriter = RealWriterType::New();
@@ -199,11 +199,12 @@ int main( int argc, char* argv[] )
 	/*
 	 *	Reading input image
 	 */
-
+/*
 	// The file format is nrrd, but it can be changed
 	ReaderType::Pointer reader = ReaderType::New();
 	reader->SetFileName( str + ".nrrd" );
 	reader->Update();
+
 	ImageType::Pointer input = reader->GetOutput();
 
 	StaticFilterType::Pointer statFilter = StaticFilterType::New();
@@ -244,6 +245,13 @@ int main( int argc, char* argv[] )
 //	writer->SetInput( input );
 //	writer->SetFileName( str + "_IntensityCut.nrrd" );
 //	writer->Update();
+*/
+
+
+/*
+/////////////////////////////////////////////////////////////////////
+// 					Image Correction 							   //
+/////////////////////////////////////////////////////////////////////
 
 	std::cout << " ***** Start " << std::endl;
 
@@ -276,33 +284,380 @@ int main( int argc, char* argv[] )
 	writer->SetInput( N4CorrectedImg );
 	writer->SetFileName( str + "_N4Corrected.nrrd" );
 	writer->Update();
+*/
+/*
+	ReaderType::Pointer readerCorrected = ReaderType::New();
+	readerCorrected->SetFileName( str + "_N4Corrected.nrrd" );
+	readerCorrected->Update();
+	ImageType::Pointer input = readerCorrected->GetOutput();
+
+	ImageType::RegionType region = input->GetLargestPossibleRegion();
+	ImageType::SizeType dim3 = region.GetSize();
+
+	StaticFilterType::Pointer statFilter = StaticFilterType::New();
+	statFilter->SetInput( input );
+	statFilter->Update();
+	float meanI = statFilter->GetMean();
+	float stdI = statFilter->GetSigma();
+	float minImg = statFilter->GetMinimum();
+	float maxImg = statFilter->GetMaximum();
+	cout << "Mean+ : " << meanI << " Std : " << stdI << " Min : " << minImg << " Max : " << maxImg << endl;
+
+	float statMin = meanI - 6 * stdI;
+	float statMax = meanI + 6 * stdI;
+
+
+/////////////////////////////////////////////////////////////////////
+//				Extract Image Information 						  ///
+/////////////////////////////////////////////////////////////////////
+	RealImageType::Pointer vesselImgMultiSigma = RealImageType::New();
+	vesselImgMultiSigma->SetRegions( input->GetLargestPossibleRegion() );
+	vesselImgMultiSigma->SetSpacing( input->GetSpacing() );
+	vesselImgMultiSigma->SetOrigin( input->GetOrigin() );
+	vesselImgMultiSigma->Allocate();
+
+	RealImageType::Pointer vesselImgMultiSigmaSato = RealImageType::New();
+	vesselImgMultiSigmaSato->SetRegions( input->GetLargestPossibleRegion() );
+	vesselImgMultiSigmaSato->SetSpacing( input->GetSpacing() );
+	vesselImgMultiSigmaSato->SetOrigin( input->GetOrigin() );
+	vesselImgMultiSigmaSato->Allocate();
+
+	RealImageType::Pointer blobImgMultiSigma = RealImageType::New();
+	blobImgMultiSigma->SetRegions( input->GetLargestPossibleRegion() );
+	blobImgMultiSigma->SetSpacing( input->GetSpacing() );
+	blobImgMultiSigma->SetOrigin( input->GetOrigin() );
+	blobImgMultiSigma->Allocate();
+
+
+	RealImageType::Pointer eig0ImgMultiSigma = RealImageType::New();
+	eig0ImgMultiSigma->SetRegions( input->GetLargestPossibleRegion() );
+	eig0ImgMultiSigma->SetSpacing( input->GetSpacing() );
+	eig0ImgMultiSigma->SetOrigin( input->GetOrigin() );
+	eig0ImgMultiSigma->Allocate();
+
+	RealImageType::Pointer eig1ImgMultiSigma = RealImageType::New();
+	eig1ImgMultiSigma->SetRegions( input->GetLargestPossibleRegion() );
+	eig1ImgMultiSigma->SetSpacing( input->GetSpacing() );
+	eig1ImgMultiSigma->SetOrigin( input->GetOrigin() );
+	eig1ImgMultiSigma->Allocate();
+
+	RealImageType::Pointer eig2ImgMultiSigma = RealImageType::New();
+	eig2ImgMultiSigma->SetRegions( input->GetLargestPossibleRegion() );
+	eig2ImgMultiSigma->SetSpacing( input->GetSpacing() );
+	eig2ImgMultiSigma->SetOrigin( input->GetOrigin() );
+	eig2ImgMultiSigma->Allocate();
+
+
+	for( int x = 0; x < dim3[0]; x++ )
+	for( int y = 0; y < dim3[1]; y++ )
+	for( int z = 0; z < dim3[2]; z++ )
+	{
+		RealImageType::IndexType idx;
+		idx[0] = x;
+		idx[1] = y;
+		idx[2] = z;
+
+		vesselImgMultiSigma->SetPixel( idx, 0 );
+		vesselImgMultiSigmaSato->SetPixel( idx, 0 );
+		eig0ImgMultiSigma->SetPixel( idx, 0 );
+		eig1ImgMultiSigma->SetPixel( idx, 0 );
+		eig2ImgMultiSigma->SetPixel( idx, 0 );
+		blobImgMultiSigma->SetPixel( idx, 0 );
+	}
+	vesselImgMultiSigma->Update();
+	vesselImgMultiSigmaSato->Update();
+	eig0ImgMultiSigma->Update();
+	eig1ImgMultiSigma->Update();
+	eig2ImgMultiSigma->Update();
+	blobImgMultiSigma->Update();
 
 	std::cout << " ***** Line Shape Filter " << std::endl;
 	// This filter does a hessian + gaussian filter
 	// We have then access to eigen values
-	LineShapeFilterType::Pointer lineShapeFilter = LineShapeFilterType::New();
+	// Scale Space Search
+	for( int i = 10; i < 101; i++ )
+	{
+		double sigma = i * 0.2;
+		string strS = str + std::to_string( sigma );
 
-	lineShapeFilter->SetInput( N4CorrectedImg );
-	// this parameter has to be about the width of a fiber
-	lineShapeFilter->SetSigma( 2.0f );
-	lineShapeFilter->SetExtractBrightLine( false );
-	lineShapeFilter->EigenValuesExtractionOn();
-	lineShapeFilter->LabelImageOn();
-	lineShapeFilter->Update();
+		LineShapeFilterType::Pointer lineShapeFilter = LineShapeFilterType::New();
+		lineShapeFilter->SetInput( input );
+		// this parameter has to be about the width of a fiber
+		lineShapeFilter->SetSigma( sigma );
+		lineShapeFilter->SetExtractBrightLine( false );
+		lineShapeFilter->EigenValuesExtractionOn();
+		lineShapeFilter->LabelImageOn();
+		lineShapeFilter->Update();
 
-	// Binary image of the fiber-like shapes
-	writer->SetInput( lineShapeFilter->GetBinaryOutput() );
-	writer->SetFileName( str + "_binary.nrrd" );
-	writer->Update();
+//		// Binary image of the fiber-like shapesppt
+//		writer->SetInput( lineShapeFilter->GetBinaryOutput() );
+//		writer->SetFileName( strS + "_binary.nrrd" );
+//		writer->Update();
+//
+//		// Label image depending of the sign of the 3 sorted eigenvalues
+//		writer->SetInput( lineShapeFilter->GetLabelOutput() );
+//		writer->SetFileName( strS + "_label.nrrd" );
+//		writer->Update();
 
-	// Label image depending of the sign of the 3 sorted eigenvalues
-	writer->SetInput( lineShapeFilter->GetLabelOutput() );
-	writer->SetFileName( str + "_label.nrrd" );
-	writer->Update();
+		RealImageType::Pointer eigImg0 = lineShapeFilter->GetEigenValuesOutput( 0 );
+		RealImageType::Pointer eigImg1 = lineShapeFilter->GetEigenValuesOutput( 1 );
+		RealImageType::Pointer eigImg2 = lineShapeFilter->GetEigenValuesOutput( 2 );
 
-	RealImageType::Pointer eigImg0 = lineShapeFilter->GetEigenValuesOutput( 0 );
-	RealImageType::Pointer eigImg1 = lineShapeFilter->GetEigenValuesOutput( 1 );
-	RealImageType::Pointer eigImg2 = lineShapeFilter->GetEigenValuesOutput( 2 );
+		RealStatisticFilterType::Pointer eigStatFilter = RealStatisticFilterType::New();
+		eigStatFilter->SetInput( eigImg0 );
+		eigStatFilter->Update();
+		float minEig0 = eigStatFilter->GetMinimum();
+		float maxEig0 = eigStatFilter->GetMaximum();
+
+		cout << " Min : " << minEig0 << " Max : " << maxEig0 << endl;
+
+		eigStatFilter->SetInput( eigImg1);
+		eigStatFilter->Update();
+		float minEig1 = eigStatFilter->GetMinimum();
+		float maxEig1 = eigStatFilter->GetMaximum();
+
+		cout << " Min : " << minEig1 << " Max : " << maxEig1 << endl;
+
+		eigStatFilter->SetInput( eigImg2 );
+		eigStatFilter->Update();
+		float minEig2 = eigStatFilter->GetMinimum();
+		float maxEig2 = eigStatFilter->GetMaximum();
+
+		cout << " Min : " << minEig2 << " Max : " << maxEig2 << endl;
+
+		double rEig0Inten = ( statMax - statMin ) / ( maxEig0 - minEig0 );
+		double rEig1Inten = ( statMax - statMin ) / ( maxEig1 - minEig1 );
+		double rEig2Inten = ( statMax - statMin ) / ( maxEig2 - minEig2 );
+
+//		realWriter->SetFileName( strS + "_eig0.nrrd" );
+//		realWriter->SetInput( eigImg0 );
+//		realWriter->Update();
+//
+//		realWriter->SetFileName( strS + "_eig1.nrrd" );
+//		realWriter->SetInput( eigImg1 );
+//		realWriter->Update();
+//
+//		realWriter->SetFileName( strS + "_eig2.nrrd" );
+//		realWriter->SetInput( eigImg2 );
+//		realWriter->Update();
+//
+//		// Vesselness output (fiber-shape likelihood)
+//		realWriter->SetInput( lineShapeFilter->GetVesselnessOutput() );
+//		realWriter->SetFileName( strS + "_vesselness.nrrd" );
+//		realWriter->Update();
+//
+//		// Label image depending of the sign of the 3 sorted eigenvalues
+//		writer->SetInput( lineShapeFilter->GetLabelOutput() );
+//		writer->SetFileName( strS + "_label.nrrd" );
+//		writer->Update();
+
+//		// Watershed Segmentation for Blob Detection
+//		GradientMagnitudeFilterType::Pointer gradientFilter = GradientMagnitudeFilterType::New();
+//		gradientFilter->SetInput( input );
+//		gradientFilter->Update();
+//
+//		realWriter->SetInput( gradientFilter->GetOutput() );
+//		realWriter->SetFileName( strS + "_gradMag.nrrd" );
+//		realWriter->Update();
+//		RealImageType::SizeType dim = region.GetSize();
+
+		RealImageType::Pointer blobImg = RealImageType::New();
+		blobImg->SetRegions( eigImg0->GetLargestPossibleRegion() );
+		blobImg->SetSpacing( eigImg0->GetSpacing() );
+		blobImg->SetOrigin( eigImg0->GetOrigin() );
+		blobImg->Allocate();
+
+		LabelType::Pointer blobBin = LabelType::New();
+		blobBin->SetRegions( eigImg0->GetLargestPossibleRegion() );
+		blobBin->SetSpacing( eigImg0->GetSpacing() );
+		blobBin->SetOrigin( eigImg0->GetOrigin() );
+		blobBin->Allocate();
+
+		LabelType::Pointer vesselBin = LabelType::New();
+		vesselBin->SetRegions( eigImg0->GetLargestPossibleRegion() );
+		vesselBin->SetSpacing( eigImg0->GetSpacing() );
+		vesselBin->SetOrigin( eigImg0->GetOrigin() );
+		vesselBin->Allocate();
+
+		RealImageType::Pointer vesselImg = RealImageType::New();
+		vesselImg->SetRegions( eigImg0->GetLargestPossibleRegion() );
+		vesselImg->SetSpacing( eigImg0->GetSpacing() );
+		vesselImg->SetOrigin( eigImg0->GetOrigin() );
+		vesselImg->Allocate();
+
+		cout << dim3[0] << ", " << dim3[1] << ", " << dim3[2] << endl;
+		float alpha = 0.2;
+		float beta = 0.2;
+		float c = sqrt( maxEig0 * maxEig0 + maxEig1 * maxEig1 + maxEig2 * maxEig2 ) / 2.0;
+
+		for( int x = 0; x < dim3[0]; x++ )
+		for( int y = 0; y < dim3[1]; y++ )
+		for( int z = 0; z < dim3[2]; z++ )
+		{
+			RealImageType::IndexType idx;
+			idx[0] = x;
+			idx[1] = y;
+			idx[2] = z;
+
+			float lambda1 = eigImg0->GetPixel( idx );
+			float lambda2 = eigImg1->GetPixel( idx );
+			float lambda3 = eigImg2->GetPixel( idx );
+
+			// eigImg2 > eigImg1 - 1.0 > eigImg0
+			// lambda3 > lambda2 > lambda1
+			float blVal = abs( lambda1 ) / sqrt( abs( lambda2 * lambda3 ) );
+			float sVal = sqrt( lambda1 * lambda1 + lambda2 * lambda2 + lambda3 * lambda3 );
+			float aVal = abs( lambda2 / lambda3 );
+
+			float V0 = ( 1 - exp( -( blVal * blVal ) / ( 2 * beta * beta ) ) ) * ( 1 - exp( -( sVal * sVal ) / ( 2 * c * c ) ) );
+
+			float Ves = ( 1 - exp( -( ( aVal ) * ( aVal ) ) / ( 2 * alpha * alpha ) ) ) * ( exp( -( blVal * blVal ) / ( 2 * beta * beta ) ) ) * ( 1 - exp( -( sVal * sVal ) / ( 2 * c * c ) ) );
+			Ves = Ves * 10000;
+			V0 = V0 * 10000;
+
+			//		float V0 = 1 - exp( ( -blVal * blVal ) / ( 2 * beta * beta ) );
+			blobImg->SetPixel( idx, V0 );
+			vesselImg->SetPixel( idx, Ves );
+
+			double VesSato = lineShapeFilter->GetVesselnessOutput()->GetPixel( idx );
+
+			if( V0 > blobImgMultiSigma->GetPixel( idx ) )
+				blobImgMultiSigma->SetPixel( idx, V0 );
+
+			if( Ves > vesselImgMultiSigma->GetPixel( idx ) )
+				vesselImgMultiSigma->SetPixel( idx, Ves );
+
+			if( VesSato > vesselImgMultiSigmaSato->GetPixel( idx ) )
+				vesselImgMultiSigmaSato->SetPixel( idx, VesSato );
+
+			if( abs( lambda1 / maxEig0 ) > abs( eig0ImgMultiSigma->GetPixel( idx ) ) )
+				eig0ImgMultiSigma->SetPixel( idx, lambda1 / maxEig0 );
+
+			if( abs( lambda2 / maxEig1 ) > abs( eig1ImgMultiSigma->GetPixel( idx ) ) )
+				eig1ImgMultiSigma->SetPixel( idx, lambda2 / maxEig1 );
+
+			if( abs( lambda3 / maxEig2 ) > abs( eig2ImgMultiSigma->GetPixel( idx ) ) )
+				eig2ImgMultiSigma->SetPixel( idx, lambda3 / maxEig2 );
+
+			if( V0 > 0.2 && lambda1 < 0 && lambda2 < 0 && lambda3 < 0 )
+				blobBin->SetPixel( idx, 255 );
+			else
+				blobBin->SetPixel( idx, 0 );
+
+			int vVal = lineShapeFilter->GetLabelOutput()->GetPixel( idx );
+
+			if( vVal == 0 )
+				vesselBin->SetPixel( idx, 1 );
+			else
+				vesselBin->SetPixel( idx, 0 );
+		}
+
+		vesselBin->Update();
+		blobImg->Update();
+		blobBin->Update();
+		vesselImg->Update();
+
+//		realWriter->SetInput( blobImg );
+//		realWriter->SetFileName( strS + "blobness.nrrd" );
+//		realWriter->Update();
+//
+//		realWriter->SetInput( vesselImg );
+//		realWriter->SetFileName( strS + "vesselnessF.nrrd" );
+//		realWriter->Update();
+//
+//		labelWriter->SetInput( vesselBin );
+//		labelWriter->SetFileName( strS+"_labelV.nrrd" );
+//		labelWriter->Update();
+	}
+
+	vesselImgMultiSigmaSato->Update();
+	vesselImgMultiSigma->Update();
+	eig0ImgMultiSigma->Update();
+	eig1ImgMultiSigma->Update();
+	eig2ImgMultiSigma->Update();
+	blobImgMultiSigma->Update();
+
+
+	realWriter->SetInput( vesselImgMultiSigma );
+	realWriter->SetFileName( str + "_vesselnessF_Scale.nrrd" );
+	realWriter->Update();
+
+	realWriter->SetInput( vesselImgMultiSigmaSato );
+	realWriter->SetFileName( str + "_vesselnessSato_Scale.nrrd" );
+	realWriter->Update();
+
+	realWriter->SetInput( blobImgMultiSigma );
+	realWriter->SetFileName( str + "_Blobness_Scale.nrrd" );
+	realWriter->Update();
+
+	realWriter->SetInput( eig0ImgMultiSigma );
+	realWriter->SetFileName( str + "_eig0_Scale.nrrd" );
+	realWriter->Update();
+	realWriter->SetInput( eig1ImgMultiSigma );
+	realWriter->SetFileName( str + "_eig1_Scale.nrrd" );
+	realWriter->Update();
+	realWriter->SetInput( eig2ImgMultiSigma );
+	realWriter->SetFileName( str + "_eig2_Scale.nrrd" );
+	realWriter->Update();
+*/
+
+
+
+/////////////////////////////////////////////////////////////
+// 			Load Preprocessed Image Data 					//
+//////////////////////////////////////////////////////////////
+
+// Image Gradient For Watershed Segmentation
+	ReaderType::Pointer readerCorrected = ReaderType::New();
+	readerCorrected->SetFileName( str + "_N4Corrected.nrrd" );
+	readerCorrected->Update();
+	ImageType::Pointer input = readerCorrected->GetOutput();
+
+	ImageType::RegionType region = input->GetLargestPossibleRegion();
+	ImageType::SizeType dim3 = region.GetSize();
+
+	RealReaderType::Pointer realReaderGrad = RealReaderType::New();
+	realReaderGrad->SetFileName( str + "_gradMag.nrrd" );
+	realReaderGrad->Update();
+	RealImageType::Pointer gradient = realReaderGrad->GetOutput();
+
+	RealReaderType::Pointer realReaderEig0 = RealReaderType::New();
+	realReaderEig0->SetFileName( str + "_eig0_Scale.nrrd" );
+	realReaderEig0->Update();
+	RealImageType::Pointer eigImg0 = realReaderEig0->GetOutput();
+
+	RealReaderType::Pointer realReaderEig1 = RealReaderType::New();
+	realReaderEig1->SetFileName( str + "_eig1_Scale.nrrd" );
+	realReaderEig1->Update();
+	RealImageType::Pointer eigImg1 = realReaderEig1->GetOutput();
+
+	RealReaderType::Pointer realReaderEig2 = RealReaderType::New();
+	realReaderEig2->SetFileName( str + "_eig2_Scale.nrrd" );
+	realReaderEig2->Update();
+	RealImageType::Pointer eigImg2 = realReaderEig2->GetOutput();
+
+	RealReaderType::Pointer realReaderBlob = RealReaderType::New();
+	realReaderBlob->SetFileName( str + "_Blobness_Scale.nrrd" );
+	realReaderBlob->Update();
+	RealImageType::Pointer blobImg = realReaderBlob->GetOutput();
+
+	RealReaderType::Pointer realReaderVessel = RealReaderType::New();
+	realReaderVessel->SetFileName( str + "_vesselnessSato_Scale.nrrd" );
+	realReaderVessel->Update();
+	RealImageType::Pointer vesselImg = realReaderVessel->GetOutput();
+
+	// Image Statistic
+	StaticFilterType::Pointer statFilter = StaticFilterType::New();
+	statFilter->SetInput( input );
+	statFilter->Update();
+	float meanI = statFilter->GetMean();
+	float stdI = statFilter->GetSigma();
+	float minImg = statFilter->GetMinimum();
+	float maxImg = statFilter->GetMaximum();
+	cout << "Mean+ : " << meanI << " Std : " << stdI << " Min : " << minImg << " Max : " << maxImg << endl;
+
+	float statMin = meanI - 6 * stdI;
+	float statMax = meanI + 6 * stdI;
 
 	RealStatisticFilterType::Pointer eigStatFilter = RealStatisticFilterType::New();
 	eigStatFilter->SetInput( eigImg0 );
@@ -330,36 +685,18 @@ int main( int argc, char* argv[] )
 	double rEig1Inten = ( statMax - statMin ) / ( maxEig1 - minEig1 );
 	double rEig2Inten = ( statMax - statMin ) / ( maxEig2 - minEig2 );
 
-	realWriter->SetFileName( str + "_eig0.nrrd" );
-	realWriter->SetInput( eigImg0 );
-	realWriter->Update();
-
-	realWriter->SetFileName( str + "_eig1.nrrd" );
-	realWriter->SetInput( eigImg1 );
-	realWriter->Update();
-
-	realWriter->SetFileName( str + "_eig2.nrrd" );
-	realWriter->SetInput( eigImg2 );
-	realWriter->Update();
-
-	// Watershed Segmentation for Blob Detection
-	GradientMagnitudeFilterType::Pointer gradientFilter = GradientMagnitudeFilterType::New();
-	gradientFilter->SetInput( input );
-	gradientFilter->Update();
-
-	realWriter->SetInput( gradientFilter->GetOutput() );
-	realWriter->SetFileName( str + "_gradMag.nrrd" );
-	realWriter->Update();
-
+///////////////////////////////////////////////////////////////////
+// Image Processing												 //
+///////////////////////////////////////////////////////////////////
 	WatershedFilterType::Pointer watersheder = WatershedFilterType::New();
-	watersheder->SetInput( gradientFilter->GetOutput() );
+	watersheder->SetInput( gradient );
 	watersheder->SetThreshold( 0.001 );
 	watersheder->SetLevel( 0.12 );
 	watersheder->Update();
 	SegLabelType::Pointer waterShedLabel = watersheder->GetOutput();
 
 	segLabelWriter->SetInput( waterShedLabel );
-	segLabelWriter->SetFileName( str + "_watershed_001_15.nrrd" );
+	segLabelWriter->SetFileName( strRes + "_watershed_001_15.nrrd" );
 	segLabelWriter->Update();
 
 	// Label Statisitic Filter
@@ -439,7 +776,6 @@ int main( int argc, char* argv[] )
 	int checkTooBig = 0;
 	int checkGood = 0;
 
-
 	for( int i = 0; i < maxL; i++ )
 	{
 		double meanVal = meanArr[ i ];
@@ -477,9 +813,6 @@ int main( int argc, char* argv[] )
 	else
 		cout << "Incorrect Size : " << checkSize << "Original Size : " << dim3[0] * dim3[1] * dim3[2] << endl;
 
-
-	cout << "Vector Size : " << vecMean.size() << endl;
-
 	VTK_CREATE( vtkDoubleArray, kMeanArr );
 	kMeanArr->SetNumberOfComponents( 1 );
 	kMeanArr->SetName( "Mean" );
@@ -500,7 +833,7 @@ int main( int argc, char* argv[] )
 	kEig2Arr->SetName( "Eig2" );
 	kEig2Arr->SetNumberOfTuples( vecMean.size() );
 
-	ofstream out2(str + "Mean.csv");
+	ofstream out2(strRes + "Mean.csv");
 
 	for( int i = 0; i < vecMean.size(); i++ )
 	{
@@ -544,7 +877,7 @@ int main( int argc, char* argv[] )
 	cout << "# of Rows : " << kMean->GetOutput()->GetNumberOfRows() << endl;
 	cout << "# of Vectors : " << vecMean.size() << endl;
 
-	ofstream out( str + "kmean.csv" );
+	ofstream out( strRes + "kmean.csv" );
 
 	double meanIntenCluster[ 3 ] = { 0, 0, 0 }; //, 0 };
 	int cntCluster[ 3 ] = { 0, 0, 0 }; //, 0 };
@@ -553,7 +886,9 @@ int main( int argc, char* argv[] )
 	{
 		vtkVariant v = kMean->GetOutput()->GetValue( i, kMean->GetOutput()->GetNumberOfColumns() - 1 );
 		int iCluster = v.ToInt();
-		vecCluster.push_back( iCluster );
+		vecCluster.push_back( iCluster );++
+
+
 		out << iCluster;
 		out << ",";
 		out << vecMean.at(i);
@@ -619,7 +954,7 @@ int main( int argc, char* argv[] )
 	kMeanLabel->Update();
 
 	labelWriter->SetInput( kMeanLabel );
-	labelWriter->SetFileName(str + "kMeanLabel.nrrd" );
+	labelWriter->SetFileName(strRes + "kMeanLabel.nrrd" );
 	labelWriter->Update();
 
 	CCAFilterType::Pointer ccaFilter = CCAFilterType::New();
@@ -633,9 +968,8 @@ int main( int argc, char* argv[] )
 	sizeFilter->Update();
 
 	labelWriter->SetInput( sizeFilter->GetOutput() );
-	labelWriter->SetFileName( str + "kMeanCCA.nrrd" );
+	labelWriter->SetFileName( strRes + "kMeanCCA.nrrd" );
 	labelWriter->Update();
-
 
 	// 2nd Clustering Begin
 	vector< unsigned short > vecBlobInten;
@@ -667,9 +1001,9 @@ int main( int argc, char* argv[] )
 		if( kL == 2 )
 		{
 			vecBlobInten.push_back( input->GetPixel( idx ) );
-			vecBlobEig0.push_back( ( eigImg0->GetPixel( idx ) - minEig0 ) * rEig0Inten );
-			vecBlobEig1.push_back( ( eigImg1->GetPixel( idx ) - minEig1 ) * rEig1Inten );
-			vecBlobEig2.push_back( ( eigImg2->GetPixel( idx ) - minEig2 ) * rEig2Inten );
+			vecBlobEig0.push_back( abs( eigImg0->GetPixel( idx ) ) * rEig0Inten );
+			vecBlobEig1.push_back( abs( eigImg1->GetPixel( idx ) ) * rEig1Inten );
+			vecBlobEig2.push_back( abs( eigImg2->GetPixel( idx ) ) * rEig2Inten );
 			vecBlobIdx.push_back( idx );
 		}
 	}
@@ -684,11 +1018,6 @@ int main( int argc, char* argv[] )
 	blobBlobnessArray->SetName( "Blobness" );
 	blobBlobnessArray->SetNumberOfTuples( vecBlobInten.size() );
 
-	VTK_CREATE( vtkDoubleArray, blobStructurenessArray );
-	blobStructurenessArray->SetNumberOfComponents( 1 );
-	blobStructurenessArray->SetName( "Structureness" );
-	blobStructurenessArray->SetNumberOfTuples( vecBlobInten.size() );
-
 	VTK_CREATE( vtkDoubleArray, blobVesselnessArray );
 	blobVesselnessArray->SetNumberOfComponents( 1 );
 	blobVesselnessArray->SetName( "Vesselness" );
@@ -699,27 +1028,26 @@ int main( int argc, char* argv[] )
 		double eigVal0 = vecBlobEig0.at( i );
 		double eigVal1 = vecBlobEig1.at( i );
 		double eigVal2 = vecBlobEig2.at( i );
+		RealImageType::IndexType idx = vecBlobIdx.at( i );
 
-		double blobness = abs( eigVal0 ) / sqrt( abs( eigVal1 * eigVal2 ) );
-		double structureness = sqrt( eigVal0 * eigVal0 + eigVal1 * eigVal1 + eigVal2 * eigVal2 ) / 3.0;
-		double vesselness = abs( eigVal1 / eigVal2 ) * ( statMax - statMin );
+
+		double blobness = blobImg->GetPixel( idx );
+		double vesselness = vesselImg->GetPixel( idx );
 
 		blobIntenArray->SetValue( i, vecBlobInten.at( i ) );
 		blobBlobnessArray->SetValue( i, vecBlobEig0.at( i ) );
-		blobStructurenessArray->SetValue( i, structureness );
 		blobVesselnessArray->SetValue( i, vesselness );
+		blobBlobnessArray->SetValue( i, blobness );
 	}
 
 	blobIntenArray->Modified();
 	blobBlobnessArray->Modified();
-	blobStructurenessArray->Modified();
 	blobVesselnessArray->Modified();
 
 	VTK_CREATE( vtkTable, tableBlobInten );
 	tableBlobInten->AddColumn( blobIntenArray );
 	tableBlobInten->AddColumn( blobBlobnessArray );
-//	tableBlobInten->AddColumn( blobStructurenessArray );
-//	tableBlobInten->AddColumn( blobVesselnessArray );
+	tableBlobInten->AddColumn( blobVesselnessArray );
 	tableBlobInten->Update();
 
 	// 2nd KMeans
@@ -727,7 +1055,7 @@ int main( int argc, char* argv[] )
 	kMean2->SetInput( vtkStatisticsAlgorithm::INPUT_DATA, tableBlobInten );
 	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 0 ), 1 );
 	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 1 ), 1 );
-//	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 2 ), 1 );
+	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 2 ), 1 );
 //	kMean2->SetColumnStatus( tableBlobInten->GetColumnName( 3 ), 1 );
 
 	kMean2->RequestSelectedColumns();
@@ -785,7 +1113,7 @@ int main( int argc, char* argv[] )
 	kMeanLabel2->Update();
 
 	labelWriter->SetInput( kMeanLabel2 );
-	labelWriter->SetFileName(str + "kMeanLabel2nd.nrrd" );
+	labelWriter->SetFileName( strRes + "kMeanLabel2nd.nrrd" );
 	labelWriter->Update();
 
 	// Write Only Blob Candidates
@@ -830,7 +1158,7 @@ int main( int argc, char* argv[] )
 	kMeanLabel3->Update();
 
 	labelWriter->SetInput( kMeanLabel3 );
-	labelWriter->SetFileName(str + "kMeanLabel2ndBlobCandidates.nrrd" );
+	labelWriter->SetFileName( strRes + "kMeanLabel2ndBlobCandidates.nrrd" );
 	labelWriter->Update();
 
 	CCAFilterType::Pointer ccaFilter2nd = CCAFilterType::New();
@@ -845,272 +1173,139 @@ int main( int argc, char* argv[] )
 	SegLabelType::Pointer blobCCALabel = sizeFilter2nd->GetOutput();
 
 	segLabelWriter->SetInput( blobCCALabel );
-	segLabelWriter->SetFileName( str + "kMeanLabel2ndBlobCandidatesCCA.nrrd" );
+	segLabelWriter->SetFileName( strRes + "kMeanLabel2ndBlobCandidatesCCA.nrrd" );
 	segLabelWriter->Update();
 
-	// 2nd Cluster Result Shape Refinement
-	// Get Cubic OBB
-	int nObj = sizeFilter2nd->GetNumberOfObjects();
 
-	cout << "# of Objects : " << nObj << endl;
-
-	int* lx = new int[ nObj ];
-	int* hx = new int[ nObj ];
-
-	int* ly = new int[ nObj ];
-	int* hy = new int[ nObj ];
-
-	int* lz = new int[ nObj ];
-	int* hz = new int[ nObj ];
-
-	for( int i = 0; i < nObj; i++ )
-	{
-		lx[ i ] = 100000;
-		ly[ i ] = 100000;
-		lz[ i ] = 100000;
-		hx[ i ] = 0;
-		hy[ i ] = 0;
-		hz[ i ] = 0;
-	}
-
-	for( int x = 0; x < dim3[0]; x++ )
-	for( int y = 0; y < dim3[1]; y++ )
-	for( int z = 0; z < dim3[2]; z++ )
-	{
-		SegLabelType::IndexType idx;
-		idx[0] = x;
-		idx[1] = y;
-		idx[2] = z;
-
-		unsigned long segLabelVal = blobCCALabel->GetPixel( idx );
-
-		if( segLabelVal == 0 )
-			continue;
-
-		int labIdx = segLabelVal - 1;
-
-		if( labIdx < 0 )
-			continue;
-
-		if( lx[ labIdx ] > x ) lx[ labIdx ] = x;
-		if( ly[ labIdx ] > y ) ly[ labIdx ] = y;
-		if( lz[ labIdx ] > z ) lz[ labIdx ] = z;
-
-		if( hx[ labIdx ] < x ) hx[ labIdx ] = x;
-		if( hy[ labIdx ] < y ) hy[ labIdx ] = y;
-		if( hz[ labIdx ] < z ) hz[ labIdx ] = z;
-	}
-
-	// Calculate the ratio between width and height and the ratio of object volume in OBB
-	vector< int > vecFlaws;
-	vecFlaws.clear();
-
-	for( int i = 0; i < nObj; i++ )
-	{
-		double ratioMax = 0;
-		double ratioXY = (double)( hx[i] - lx[i] + 1) / (double)( hy[i] - ly[i] + 1);
-		double ratioXZ = (double)( hx[i] - lx[i] + 1) / (double)( hz[i] - lz[i] + 1);
-		double ratioYZ = (double)( hy[i] - ly[i] + 1) / (double)( hz[i] - lz[i] + 1);
-		double ratioYX = 1.0 / ratioXY;
-		double ratioZX = 1.0 / ratioXZ;
-		double ratioZY = 1.0 / ratioYZ;
-
-		double whR[6] = { ratioXY, ratioXZ, ratioYZ, ratioYX, ratioZX, ratioZY };
-
-		for( int j = 0; j < 6; j++ )
-		{
-			if( ratioMax < whR[ j ] ) ratioMax = whR[ j ];
-		}
-
-
-		double obbVol = ( hx[ i ] - lx[ i ] + 1 ) * ( hy[ i ] - ly[ i ] + 1 ) * ( hz[ i ] - lz[ i ] + 1 );
-		if( obbVol <= 0 ) obbVol = 1;
-
-		double ratioVol = (double) sizeFilter2nd->GetSizeOfObjectsInPixels()[ i ] / obbVol;
-
-		cout << "Index : " << i << " Volume Ratio : " << ratioVol << " Line Ratio : " << ratioMax << endl;
-
-		if( ratioMax > 4.0 || ratioVol < 0.1 )
-		{
-			vecFlaws.push_back( i );
-		}
-	}
-
-	SegLabelType::Pointer kMeanLabelRefined = SegLabelType::New();
-	kMeanLabelRefined->SetRegions( input->GetLargestPossibleRegion() );
-	kMeanLabelRefined->SetSpacing( input->GetSpacing() );
-	kMeanLabelRefined->SetOrigin( input->GetOrigin() );
-	kMeanLabelRefined->Allocate();
-
-	for( int x = 0; x < dim3[0]; x++ )
-	for( int y = 0; y < dim3[1]; y++ )
-	for( int z = 0; z < dim3[2]; z++ )
-	{
-		ImageType::IndexType idx;
-		idx[0] = x;
-		idx[1] = y;
-		idx[2] = z;
-
-		unsigned long segLabelVal = blobCCALabel->GetPixel( idx );
-		kMeanLabelRefined->SetPixel( idx, segLabelVal );
-
-		for( int i = 0; i < vecFlaws.size(); i++ )
-		{
-			if( segLabelVal == vecFlaws.at( i ) )
-			{
-				kMeanLabelRefined->SetPixel( idx, 0 );
-				break;
-			}
-		}
-	}
-
-	kMeanLabelRefined->Update();
-
-	segLabelWriter->SetInput( kMeanLabelRefined );
-	segLabelWriter->SetFileName(str + "kMeanLabel2ndBlobRefined.nrrd" );
-	segLabelWriter->Update();
-
-	// Termination
-	delete [] lx;
-	delete [] ly;
-	delete [] lz;
-	delete [] hx;
-	delete [] hy;
-	delete [] hz;
-
-
-	RealImageType::SizeType dim = region.GetSize();
-
-	RealImageType::Pointer blobImg = RealImageType::New();
-	blobImg->SetRegions( eigImg0->GetLargestPossibleRegion() );
-	blobImg->SetSpacing( eigImg0->GetSpacing() );
-	blobImg->SetOrigin( eigImg0->GetOrigin() );
-	blobImg->Allocate();
-
-	LabelType::Pointer blobBin = LabelType::New();
-	blobBin->SetRegions( eigImg0->GetLargestPossibleRegion() );
-	blobBin->SetSpacing( eigImg0->GetSpacing() );
-	blobBin->SetOrigin( eigImg0->GetOrigin() );
-	blobBin->Allocate();
-
-	LabelType::Pointer vesselBin = LabelType::New();
-	vesselBin->SetRegions( eigImg0->GetLargestPossibleRegion() );
-	vesselBin->SetSpacing( eigImg0->GetSpacing() );
-	vesselBin->SetOrigin( eigImg0->GetOrigin() );
-	vesselBin->Allocate();
-
-
-	RealImageType::Pointer vesselImg = RealImageType::New();
-	vesselImg->SetRegions( eigImg0->GetLargestPossibleRegion() );
-	vesselImg->SetSpacing( eigImg0->GetSpacing() );
-	vesselImg->SetOrigin( eigImg0->GetOrigin() );
-	vesselImg->Allocate();
-
-	cout << dim[0] << ", " << dim[1] << ", " << dim[2] << endl;
-	float alpha = 0.5;
-	float beta = 0.5;
-	float c = 2000;
-
-	for( int x = 0; x < dim[0]; x++ )
-	for( int y = 0; y < dim[1]; y++ )
-	for( int z = 0; z < dim[2]; z++ )
-	{
-		RealImageType::IndexType idx;
-		idx[0] = x;
-		idx[1] = y;
-		idx[2] = z;
-		float lambda1 = eigImg0->GetPixel( idx );
-		float lambda2 = eigImg1->GetPixel( idx );
-		float lambda3 = eigImg2->GetPixel( idx );
-
-		// eigImg2 > eigImg1 > eigImg0
-		// lambda3 > lambda2 > lambda1
-		float blVal = abs( lambda1 ) / sqrt( abs( lambda2 * lambda3 ) );
-		float sVal = sqrt( lambda1 * lambda1 + lambda2 * lambda2 + lambda3 * lambda3 );
-		float aVal = abs( lambda2 / lambda3 );
-
-		float V0 = exp( -( aVal*aVal ) / ( 2 * alpha * alpha ) ) * ( 1 - exp( -(blVal * blVal) / ( 2 * beta * beta ) ) ) * ( 1 - exp( -( sVal * sVal ) / ( 2 * c * c ) ) );
-
-		float Ves = ( 1 - exp( -( aVal*aVal ) / ( 2 * alpha * alpha ) ) ) * ( exp( -(blVal * blVal) / ( 2 * beta * beta ) ) ) * ( 1 - exp( -( sVal * sVal ) / ( 2 * c * c ) ) );
-//		float V0 = 1 - exp( ( -blVal * blVal ) / ( 2 * beta * beta ) );
-		blobImg->SetPixel( idx, V0 * 10000 );
-		vesselImg->SetPixel( idx, Ves * 10000 );
-
-		if( V0 > 0.2 && lambda1 < 0 && lambda2 < 0 && lambda3 < 0 )
-			blobBin->SetPixel( idx, 255 );
-		else
-			blobBin->SetPixel( idx, 0 );
-
-		int vVal = lineShapeFilter->GetLabelOutput()->GetPixel( idx );
-
-		if( vVal == 0 )
-			vesselBin->SetPixel( idx, 1 );
-		else
-			vesselBin->SetPixel( idx, 0 );
-
-	}
-
-	vesselBin->Update();
-	blobImg->Update();
-	blobBin->Update();
-	vesselImg->Update();
-
-	cout << "Blob Detected?" << endl;
-
-	realWriter->SetInput( blobImg );
-	realWriter->SetFileName( str + "blobness.nrrd" );
-	realWriter->Update();
-
-	realWriter->SetInput( vesselImg );
-	realWriter->SetFileName( str + "vesselnessF.nrrd" );
-	realWriter->Update();
-
-
-	// Label image depending of the sign of the 3 sorted eigenvalues
-//	writer->SetInput( blobBin );
-//	writer->SetFileName( str + "_label.nrrd" );
-//	writer->Update();
-//	labelWriter->SetInput( sizeFilter->GetOutput() );
-//	labelWriter->SetFileName( str + "labelS.nrrd" );
-//	labelWriter->Update();
-
-	// Vesselness output (fiber-shape likelihood)
-	realWriter->SetInput( lineShapeFilter->GetVesselnessOutput() );
-	realWriter->SetFileName( str + "_vesselness.nrrd" );
-	realWriter->Update();
-
-	realWriter->SetInput( blobImg );
-	realWriter->SetFileName( str + "_blobness.nrrd" );
-	realWriter->Update();
-
-
-	// Label image depending of the sign of the 3 sorted eigenvalues
-	writer->SetInput( lineShapeFilter->GetLabelOutput() );
-	writer->SetFileName( str + "_label.nrrd" );
-	writer->Update();
-
-	labelWriter->SetInput( vesselBin );
-	labelWriter->SetFileName( str+"_labelV.nrrd" );
-	labelWriter->Update();
-
+//	// 2nd Cluster Result Shape Refinement
+//	// Get Cubic OBB
+//	int nObj = sizeFilter2nd->GetNumberOfObjects();
 //
-//	KMeansType::Pointer KmeanFilter = KMeansType::New();
-//	KmeanFilter->SetInput( input );
-//	KmeanFilter->SetUseNonContiguousLabels( true );
-//	KmeanFilter->AddClassWithInitialMean( statMin );
-//	KmeanFilter->AddClassWithInitialMean( meanI );
-//	KmeanFilter->AddClassWithInitialMean( statMax );
-//	KmeanFilter->Update();
+//	cout << "# of Objects : " << nObj << endl;
 //
-//	KMeansType::ParametersType estimatedMean = KmeanFilter->GetFinalMeans();
+//	int* lx = new int[ nObj ];
+//	int* hx = new int[ nObj ];
 //
-//	int nClass = estimatedMean.Size();
+//	int* ly = new int[ nObj ];
+//	int* hy = new int[ nObj ];
 //
-//	cout << "# of clusters : " << nClass << endl;
+//	int* lz = new int[ nObj ];
+//	int* hz = new int[ nObj ];
 //
-//	labelWriter->SetInput( KmeanFilter->GetOutput() );
-//	labelWriter->SetFileName( str + "kmeansLabel.nrrd" );
-//	labelWriter->Update();
+//	for( int i = 0; i < nObj; i++ )
+//	{
+//		lx[ i ] = 100000;
+//		ly[ i ] = 100000;
+//		lz[ i ] = 100000;
+//		hx[ i ] = 0;
+//		hy[ i ] = 0;
+//		hz[ i ] = 0;
+//	}
+//
+//	for( int x = 0; x < dim3[0]; x++ )
+//	for( int y = 0; y < dim3[1]; y++ )
+//	for( int z = 0; z < dim3[2]; z++ )
+//	{
+//		SegLabelType::IndexType idx;
+//		idx[0] = x;
+//		idx[1] = y;
+//		idx[2] = z;
+//
+//		unsigned long segLabelVal = blobCCALabel->GetPixel( idx );
+//
+//		if( segLabelVal == 0 )
+//			continue;
+//
+//		int labIdx = segLabelVal - 1;
+//
+//		if( labIdx < 0 )
+//			continue;
+//
+//		if( lx[ labIdx ] > x ) lx[ labIdx ] = x;
+//		if( ly[ labIdx ] > y ) ly[ labIdx ] = y;
+//		if( lz[ labIdx ] > z ) lz[ labIdx ] = z;
+//
+//		if( hx[ labIdx ] < x ) hx[ labIdx ] = x;
+//		if( hy[ labIdx ] < y ) hy[ labIdx ] = y;
+//		if( hz[ labIdx ] < z ) hz[ labIdx ] = z;
+//	}
+//
+//	// Calculate the ratio between width and height and the ratio of object volume in OBB
+//	vector< int > vecFlaws;
+//	vecFlaws.clear();
+//
+//	for( int i = 0; i < nObj; i++ )
+//	{
+//		double ratioMax = 0;
+//		double ratioXY = (double)( hx[i] - lx[i] + 1) / (double)( hy[i] - ly[i] + 1);
+//		double ratioXZ = (double)( hx[i] - lx[i] + 1) / (double)( hz[i] - lz[i] + 1);
+//		double ratioYZ = (double)( hy[i] - ly[i] + 1) / (double)( hz[i] - lz[i] + 1);
+//		double ratioYX = 1.0 / ratioXY;
+//		double ratioZX = 1.0 / ratioXZ;
+//		double ratioZY = 1.0 / ratioYZ;
+//
+//		double whR[6] = { ratioXY, ratioXZ, ratioYZ, ratioYX, ratioZX, ratioZY };
+//
+//		for( int j = 0; j < 6; j++ )
+//		{
+//			if( ratioMax < whR[ j ] ) ratioMax = whR[ j ];
+//		}
+//
+//
+//		double obbVol = ( hx[ i ] - lx[ i ] + 1 ) * ( hy[ i ] - ly[ i ] + 1 ) * ( hz[ i ] - lz[ i ] + 1 );
+//		if( obbVol <= 0 ) obbVol = 1;
+//
+//		double ratioVol = (double) sizeFilter2nd->GetSizeOfObjectsInPixels()[ i ] / obbVol;
+//
+//		cout << "Index : " << i << " Volume Ratio : " << ratioVol << " Line Ratio : " << ratioMax << endl;
+//
+//		if( ratioMax > 4.0 || ratioVol < 0.1 )
+//		{
+//			vecFlaws.push_back( i );
+//		}
+//	}
+//
+//	SegLabelType::Pointer kMeanLabelRefined = SegLabelType::New();
+//	kMeanLabelRefined->SetRegions( input->GetLargestPossibleRegion() );
+//	kMeanLabelRefined->SetSpacing( input->GetSpacing() );
+//	kMeanLabelRefined->SetOrigin( input->GetOrigin() );
+//	kMeanLabelRefined->Allocate();
+//
+//	for( int x = 0; x < dim3[0]; x++ )
+//	for( int y = 0; y < dim3[1]; y++ )
+//	for( int z = 0; z < dim3[2]; z++ )
+//	{
+//		ImageType::IndexType idx;
+//		idx[0] = x;
+//		idx[1] = y;
+//		idx[2] = z;
+//
+//		unsigned long segLabelVal = blobCCALabel->GetPixel( idx );
+//		kMeanLabelRefined->SetPixel( idx, segLabelVal );
+//
+//		for( int i = 0; i < vecFlaws.size(); i++ )
+//		{
+//			if( segLabelVal == vecFlaws.at( i ) )
+//			{
+//				kMeanLabelRefined->SetPixel( idx, 0 );
+//				break;
+//			}
+//		}
+//	}
+//
+//	kMeanLabelRefined->Update();
+//
+//	segLabelWriter->SetInput( kMeanLabelRefined );
+//	segLabelWriter->SetFileName( strRes + "kMeanLabel2ndBlobRefined.nrrd" );
+//	segLabelWriter->Update();
+//
+//	// Termination
+//	delete [] lx;
+//	delete [] ly;
+//	delete [] lz;
+//	delete [] hx;
+//	delete [] hy;
+//	delete [] hz;
 
 
 //	/***********************************************
